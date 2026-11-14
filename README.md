@@ -1,10 +1,10 @@
-﻿# Friday Night
+# Friday Night
 
 A shared watch list for Alex, Lyss, Julie, Blue, Ashe, Amanda, and Emi. Plain HTML, CSS, and JavaScript, hosted on GitHub Pages with a code-protected Supabase database.
 
 ## Deployment status
 
-The local website runs at http://localhost:8080 in Docker. The repository, publishing workflow, and database scripts are prepared and tested. No GitHub repository or Supabase project has been created yet, and no public website has been deployed. Account connections are required to complete those steps.
+The local website runs at http://localhost:8080 in Docker. The repository, publishing workflow, and database scripts are prepared and tested. The source is published at https://github.com/VailVeix/friday-night and GitHub Pages is enabled. Supabase authorization and project creation are still pending. The publishing workflow waits for the two backend variables, so no public website has been deployed yet.
 
 The local sample data is for preview only. Production uses the shared database and does not upload or seed the fake responses.
 
