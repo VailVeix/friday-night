@@ -29,6 +29,7 @@ function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network 
   return {context,get,tabs,localStorage,sessionStorage,event,
     async join(name,code=''){get('#name').value=name;get('#code').value=code;await get('#join-form').listeners.submit(event());},
     async vote(id,interest){const button={dataset:{vote:interest},disabled:false,closest:()=>({dataset:{id}}),hasAttribute:()=>false};await get('#grid').onclick({target:{closest:()=>button}});},
+    async seen(id){const button={dataset:{},disabled:false,closest:()=>({dataset:{id}}),hasAttribute:attribute=>attribute==='data-seen'};await get('#grid').onclick({target:{closest:()=>button}});},
     data(){return JSON.parse(localStorage.getItem('friday-demo'));}
   };
 }
@@ -152,4 +153,25 @@ test('admin-added people appear in both name menus, responses and attendance',as
   assert.ok(h.get('#grid').innerHTML.includes('aria-label="Jo &lt;friend&gt;: Not answered'));
   assert.ok(h.get('#attendees').innerHTML.includes('Jo &lt;friend&gt;'));
   await h.vote('test-title','interested');assert.equal(vote.name,'Jo <friend>');
+});
+test('personal seen is independent per person, reversible, and preserves votes and the group list',async()=>{
+  const h=harness(),id=h.context.window.WATCH_SEED[0].id;
+  await h.join('Alex');await h.vote(id,'hold');const votes=h.data().votes;
+  await h.seen(id);assert.deepEqual(h.data().seen,[{item_id:id,name:'Alex'}]);
+  assert.deepEqual(h.data().votes,votes);assert.equal(h.data().items[0].watched,false);assert.equal(h.get('#count').textContent,46);
+  await h.join('Michelle');await h.seen(id);assert.equal(h.data().seen.length,2);
+  await h.join('Alex');await h.seen(id);assert.deepEqual(h.data().seen,[{item_id:id,name:'Michelle'}]);
+  const reload=harness({},undefined,h.data());await reload.join('Michelle');
+  assert.ok(reload.get('#grid').innerHTML.includes('data-seen aria-pressed="true"'));
+  assert.deepEqual(reload.data().votes,votes);assert.equal(reload.data().items[0].watched,false);
+});
+test('a failed shared seen save is reported without marking it locally',async()=>{
+  const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async(url,options)=>{
+    const body=JSON.parse(options.body);
+    if(body.p_action==='seen')return {ok:false,json:async()=>({message:'Unavailable'})};
+    return {ok:true,json:async()=>({items:[{id:'seen-test',title:'Test movie',type:'movie',tmdb_id:1}],votes:[],seen:[],people:['Alex']})};
+  });
+  await h.join('Alex','test-code');await h.seen('seen-test');
+  assert.match(h.get('#toast').textContent,/couldn’t be reached/);
+  assert.ok(h.get('#grid').innerHTML.includes('data-seen aria-pressed="false"'));assert.equal(h.data(),null);
 });

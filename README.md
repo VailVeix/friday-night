@@ -13,7 +13,7 @@ The local sample data is for preview only. Production uses the shared database a
 ## First deployment
 
 1. For a separate installation, authenticate the GitHub and Supabase CLIs, or use their dashboards for the following steps. Use a new repository and project named `friday-night`. The existing deployment above is already configured.
-2. Create the Supabase project. In SQL Editor, run `supabase/schema.sql` once, replacing `REPLACE-WITH-A-LONG-RANDOM-GROUP-CODE` with a private group code of 8–100 characters in the editor. Keep the real code out of repository files. Then run `supabase/seed.sql` to import the 46 titles. Run `supabase/admin-migration.sql` and use its final commented statement to set a separate private admin password.
+2. Create the Supabase project. In SQL Editor, run `supabase/schema.sql` once, replacing `REPLACE-WITH-A-LONG-RANDOM-GROUP-CODE` with a private group code of 8–100 characters in the editor. Keep the real code out of repository files. Then run `supabase/seed.sql` to import the 46 titles. Run `supabase/admin-migration.sql` and use its final commented statement to set a separate private admin password. Then run `supabase/personal-seen-migration.sql`.
 3. Obtain the project's HTTPS URL and **publishable** API key. The database password and secret/service-role keys are not used by the website.
 4. Create the GitHub repository and push this folder's `main` branch. GitHub Pages on GitHub Free requires a public repository; its source and initial title list will be public. Votes and watch progress stay in Supabase behind the group code.
 5. Under repository **Settings → Secrets and variables → Actions → Variables**, add `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. These are public frontend settings, not privileged credentials. Leave local `config.js` blank to retain the local sample preview.
@@ -42,6 +42,7 @@ The live deployment has the metadata function and TMDB token connected. Line-by-
 - All people on the shared roster appear normally; tonight shows only the selected people. Grey means unanswered. After responding, use the pencil icon to edit. Clicking the selected response again clears it.
 - Sorting remembers the last choice in this browser. With no saved choice, it defaults to date added, oldest first. Imported entries retain spreadsheet order; new additions receive timestamps.
 - **Who’s here tonight?** edits an attendee selection. **Apply** commits it and collapses the panel. A selected person's Nope ! hides a title. Other responses and unanswered titles remain eligible. Titles with an absent friend's Absolutely response are hidden. Clear selection and Apply restores the unfiltered list.
+- **Mark as seen** under a title records personal viewing history for the selected name. Click **Seen** again to undo. It does not change interest responses, tonight eligibility, series checklists, or the group Watched list. This status is shared across devices and survives group archive/restore.
 - Open a title for details, group watch history, and series checklists. Group and personal series progress are separate. Watched titles have their own view.
 - Everyone with the group code can choose any listed name and edit the list. Names are not separate authenticated accounts.
 - The group code is kept in session storage for the tab; the selected name is remembered locally. Shared data refreshes every 30 seconds between interactions.
@@ -58,7 +59,7 @@ Verification includes `tests/admin-database.test.sql` inside a rolled-back trans
 
 ## Database maintenance
 
-For a fresh installation, `schema.sql` already includes series progress and IDC. Do not run migrations in addition to the fresh schema.
+For a fresh installation, `schema.sql` includes series progress and IDC. Follow it with `admin-migration.sql` and `personal-seen-migration.sql`; the older progress and IDC migrations are unnecessary.
 
 Existing older installations can run `progress-migration.sql` and `idc-migration.sql`. Rerunning `seed.sql` updates reviewed catalog fields by stable ID without resetting votes or watch status. It can overwrite edited imported title names; inspect before running.
 
