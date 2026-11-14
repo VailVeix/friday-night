@@ -9,7 +9,7 @@
   const escape = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const read = (storage, key, fallback) => {try {return JSON.parse(storage.getItem(key)) ?? fallback;} catch {return fallback;}};
   const savedSort=read(localStorage,'friday-sort','oldest');
-  $('#sort').value=['oldest','newest','title','interest'].includes(savedSort)?savedSort:'oldest';
+  $('#sort').value=['oldest','newest','title','interest','unanswered'].includes(savedSort)?savedSort:'oldest';
   let name = read(localStorage, 'friday-name', '');
   const names = ["Alex","Lyss","Julie","Blue","Ashe","Amanda","Emi"];
   if(!names.includes(name))name='';
@@ -101,7 +101,11 @@
       return {votes,absent,score};
     };
     const sort=$('#sort').value;
-    visible.sort((a,b)=>sort==='title'?a.title.localeCompare(b.title):sort==='oldest'?addedOrder(a)-addedOrder(b):addedOrder(b)-addedOrder(a));
+    visible.sort((a,b)=>sort==='title'?a.title.localeCompare(b.title):['oldest','unanswered'].includes(sort)?addedOrder(a)-addedOrder(b):addedOrder(b)-addedOrder(a));
+    if(sort==='unanswered'){
+      const responded=new Set(data.votes.filter(v=>v.name===name).map(v=>v.item_id));
+      visible.sort((a,b)=>Number(responded.has(a.id))-Number(responded.has(b.id)));
+    }
     if(sort==='interest')visible.sort((a,b)=>{const x=assessment(a),y=assessment(b);return Number(!!x.absent.length)-Number(!!y.absent.length)||y.score-x.score;});
     $('#sample-notice').hidden=live||!data.votes.some(v=>v.sample);
     $('#tonight-status').hidden=tonight===null||view==='watched';
