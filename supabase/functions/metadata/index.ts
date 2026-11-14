@@ -13,7 +13,7 @@ Deno.serve(async request => {
   try {
     const raw=await request.text();if(raw.length>4096)return json({error:'Request too large.'},413);
     const input=JSON.parse(raw);
-    if(typeof input.code!=='string'||input.code.length<16||input.code.length>100)return json({error:'Group code required.'},403);
+    if(typeof input.code!=='string'||input.code.length<8||input.code.length>100)return json({error:'Group code required.'},403);
     const url=Deno.env.get('SUPABASE_URL');
     const publicKey=Deno.env.get('WATCH_PUBLIC_KEY');
     const token=Deno.env.get('TMDB_READ_TOKEN');

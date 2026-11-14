@@ -13,7 +13,7 @@ The local sample data is for preview only. Production uses the shared database a
 ## First deployment
 
 1. For a separate installation, authenticate the GitHub and Supabase CLIs, or use their dashboards for the following steps. Use a new repository and project named `friday-night`. The existing deployment above is already configured.
-2. Create the Supabase project. In SQL Editor, run `supabase/schema.sql` once, replacing `REPLACE-WITH-A-LONG-RANDOM-GROUP-CODE` with a private random group code of at least 16 characters in the editor. Keep the real code out of repository files. Then run `supabase/seed.sql` to import the 46 titles.
+2. Create the Supabase project. In SQL Editor, run `supabase/schema.sql` once, replacing `REPLACE-WITH-A-LONG-RANDOM-GROUP-CODE` with a private group code of 8–100 characters in the editor. Keep the real code out of repository files. Then run `supabase/seed.sql` to import the 46 titles.
 3. Obtain the project's HTTPS URL and **publishable** API key. The database password and secret/service-role keys are not used by the website.
 4. Create the GitHub repository and push this folder's `main` branch. GitHub Pages on GitHub Free requires a public repository; its source and initial title list will be public. Votes and watch progress stay in Supabase behind the group code.
 5. Under repository **Settings → Secrets and variables → Actions → Variables**, add `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. These are public frontend settings, not privileged credentials. Leave local `config.js` blank to retain the local sample preview.
@@ -50,7 +50,7 @@ For a fresh installation, `schema.sql` already includes series progress and IDC.
 
 Existing older installations can run `progress-migration.sql` and `idc-migration.sql`. Rerunning `seed.sql` updates reviewed catalog fields by stable ID without resetting votes or watch status. It can overwrite edited imported title names; inspect before running.
 
-Use Supabase database exports/backups for shared data. No backup-export button is present in the interface. To change the private group code, use the commented SQL example at the end of `schema.sql`; existing tabs must then enter the new code.
+Use Supabase database exports/backups for shared data. No backup-export button is present in the interface. To change the private group code, use the commented SQL example at the end of `schema.sql`; existing tabs must then enter the new code. Older installations with a 16-character minimum can run `group-code-length-migration.sql` to accept 8–100 characters. The live deployment already has this migration.
 
 ## Development and verification
 

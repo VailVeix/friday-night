@@ -7,7 +7,7 @@ create table watch_private.settings (
   singleton boolean primary key default true check(singleton),
   code_hash text not null
 );
--- Replace this example with a unique code of at least 16 characters before running.
+-- Replace this example with a unique code of 8-100 characters before running.
 insert into watch_private.settings(singleton, code_hash)
 values (true, extensions.crypt('REPLACE-WITH-A-LONG-RANDOM-GROUP-CODE', extensions.gen_salt('bf',10)));
 
@@ -59,7 +59,7 @@ declare
   v_name text;
   v_id uuid;
 begin
-  if p_code is null or length(p_code) < 16 or length(p_code) > 100 then
+  if p_code is null or length(p_code) < 8 or length(p_code) > 100 then
     raise exception 'Invalid group code';
   end if;
   select code_hash into v_hash from watch_private.settings where singleton=true;
