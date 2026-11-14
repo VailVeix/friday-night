@@ -8,6 +8,8 @@
   const voteLabels = {hold:'Absolutely',interested:'Yes',idc:'IDC',pass:'Nope !'};
   const escape = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const read = (storage, key, fallback) => {try {return JSON.parse(storage.getItem(key)) ?? fallback;} catch {return fallback;}};
+  const savedSort=read(localStorage,'friday-sort','oldest');
+  $('#sort').value=['oldest','newest','title','interest'].includes(savedSort)?savedSort:'oldest';
   let name = read(localStorage, 'friday-name', '');
   const names = ["Alex","Lyss","Julie","Blue","Ashe","Amanda","Emi"];
   if(!names.includes(name))name='';
@@ -145,7 +147,11 @@
   };
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
   document.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>{type=b.dataset.type;document.querySelectorAll('[data-type]').forEach(x=>x.setAttribute('aria-pressed',x===b));render();});
-  ['search','sort'].forEach(id=>$('#'+id).addEventListener(id==='search'?'input':'change',render));
+  $('#search').addEventListener('input',render);
+  $('#sort').addEventListener('change',()=>{
+    try{localStorage.setItem('friday-sort',JSON.stringify($('#sort').value));}catch{}
+    render();
+  });
   $('#help-button').onclick=()=>$('#help-dialog').showModal();
   $('#add-button').onclick=()=>openAdd();
   $('#tonight-button').onclick=()=>{const panel=$('#tonight-panel');panel.hidden=!panel.hidden;if(!panel.hidden)draftTonight=[...(tonight||[])];$('#tonight-button').setAttribute('aria-expanded',String(!panel.hidden));render();};
