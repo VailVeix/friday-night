@@ -248,8 +248,7 @@
       (live&&!item.tmdb_id?'<p><button class="secondary" data-match>Find a match</button></p>':'')+
       (item.imdb_id?'<a href="https://www.imdb.com/title/'+escape(item.imdb_id)+'/" target="_blank" rel="noopener">View on IMDb ↗</a>':'')+
       (list.length?'<h3>Series progress</h3><p class="hint">Release order'+(item.title==='The Muppets'?' · Theatrical films':'')+'. Group and personal progress are tracked separately.</p><div class="progress-heading"><span>Film</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+list.map((f,index)=>'<div class="film-row"><span><b>'+escape(f[0])+'</b><small>'+f[1]+'</small></span>'+['Group',name].map(person=>'<label><span class="sr-only">'+escape(f[0])+' watched by '+escape(person||'you')+'</span><input type="checkbox" data-film="'+index+'" data-person="'+escape(person)+'" '+(done(item,f,person)?'checked':'')+' '+(!name?'disabled':'')+'></label>').join('')+'</div>').join(''):'')+
-      '<div class="history-actions"><h3>Group watch history</h3><p class="hint">Move this '+(list.length?'series':'title')+' between the watch list and Watched.</p><button class="secondary" data-archive>'+ (item.watched?'Move back to watch list':'Mark group watched')+'</button></div>'+
-      (item.tmdb_id?'<p class="hint">Metadata from <a href="https://www.themoviedb.org/" target="_blank" rel="noopener">TMDB</a>. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>':'');
+      '<div class="history-actions"><h3>Group watch history</h3><p class="hint">Move this '+(list.length?'series':'title')+' between the watch list and Watched.</p><button class="secondary" data-archive>'+ (item.watched?'Move back to watch list':'Mark group watched')+'</button></div>';
   }
   $('#detail-content').onchange=async event=>{
     const input=event.target.closest('[data-film]');if(!input||!requireName())return;
