@@ -22,3 +22,10 @@ test('build includes series and only public website assets',()=>{
   assert.ok(!result.copied.some(p=>p.endsWith('.sql')));
   assert.ok([...result.written.values()].some(s=>s.includes('sb_publishable_test')));
 });
+test('publishing rejects concatenated keys even when a public key comes first',()=>{
+  const anon='header.'+Buffer.from(JSON.stringify({role:'anon'})).toString('base64url')+'.signature';
+  for(const key of [anon+'\nsb_secret_hidden',anon+' sb_secret_hidden','sb_publishable_test\nsb_secret_hidden',anon+'.extra']) {
+    assert.throws(()=>build({SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:key}),/cannot be published/);
+  }
+  assert.doesNotThrow(()=>build({SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:anon}));
+});

@@ -4,13 +4,15 @@ A shared watch list for Alex, Lyss, Julie, Blue, Ashe, Amanda, and Emi. Plain HT
 
 ## Deployment status
 
-The local website runs at http://localhost:8080 in Docker. The repository, publishing workflow, and database scripts are prepared and tested. The source is published at https://github.com/VailVeix/friday-night and GitHub Pages is enabled. Supabase authorization and project creation are still pending. The publishing workflow waits for the two backend variables, so no public website has been deployed yet.
+The live website is https://vailveix.github.io/friday-night/ and the source is https://github.com/VailVeix/friday-night. GitHub Pages publishes `main` automatically after checks pass. Shared storage runs in the `friday-night` Supabase project in VailVeix's personal organization, on the free plan in US East. The group code is private and is never included in the published files.
+
+All 46 titles are imported. Live verification covered wrong-code rejection, sign-in, saving a response in one browser and reading it in a separate browser, and mobile layout. Temporary test responses were removed. The local sample website remains available at http://localhost:8080 in Docker.
 
 The local sample data is for preview only. Production uses the shared database and does not upload or seed the fake responses.
 
 ## First deployment
 
-1. Connect GitHub and Supabase to the assistant, or use their dashboards for the following steps. Use a new repository and project named `friday-night`.
+1. For a separate installation, authenticate the GitHub and Supabase CLIs, or use their dashboards for the following steps. Use a new repository and project named `friday-night`. The existing deployment above is already configured.
 2. Create the Supabase project. In SQL Editor, run `supabase/schema.sql` once, replacing `REPLACE-WITH-A-LONG-RANDOM-GROUP-CODE` with a private random group code of at least 16 characters in the editor. Keep the real code out of repository files. Then run `supabase/seed.sql` to import the 46 titles.
 3. Obtain the project's HTTPS URL and **publishable** API key. The database password and secret/service-role keys are not used by the website.
 4. Create the GitHub repository and push this folder's `main` branch. GitHub Pages on GitHub Free requires a public repository; its source and initial title list will be public. Votes and watch progress stay in Supabase behind the group code.
@@ -19,7 +21,7 @@ The local sample data is for preview only. Production uses the shared database a
 7. The workflow checks the code, builds `_site/` from the six website assets, and publishes it. Its deployment output provides the actual website URL. Share that URL and the group code with the group.
 8. Verify sharing in two separate browsers: choose different names, use the group code, update a response in one browser, and refresh the other. Check series progress and the Watched view. A wrong group code must not load the list.
 
-The build refuses missing backend configuration and rejects secret/service-role API keys. Publishing a preview that only saves to one browser is intentionally blocked.
+The build refuses missing backend configuration and rejects secret/service-role API keys and concatenated key lists. It accepts exactly one publishable key or legacy anon JWT. This deployment uses a publishable key; legacy API keys are disabled and the legacy signing key is revoked. Publishing a preview that only saves to one browser is intentionally blocked.
 
 References: [GitHub Pages workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages), [Supabase API keys](https://supabase.com/docs/guides/getting-started/api-keys).
 

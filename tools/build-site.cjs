@@ -14,8 +14,8 @@ if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(config.supabaseUrl)) {
 }
 const key = config.supabasePublishableKey;
 let legacyAnon = false;
-try { legacyAnon = JSON.parse(Buffer.from(key.split('.')[1], 'base64url')).role === 'anon'; } catch {}
-if (!key.startsWith('sb_publishable_') && !legacyAnon) {
+try { legacyAnon = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key) && JSON.parse(Buffer.from(key.split('.')[1], 'base64url')).role === 'anon'; } catch {}
+if (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(key) && !legacyAnon) {
   throw new Error('Set SUPABASE_PUBLISHABLE_KEY to a publishable key or legacy anon key. Secret/service-role keys cannot be published.');
 }
 const output = path.join(root, '_site');
