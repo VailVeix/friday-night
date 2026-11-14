@@ -11,8 +11,8 @@
   const savedSort=read(localStorage,'friday-sort','oldest');
   $('#sort').value=['oldest','newest','title','interest','unanswered'].includes(savedSort)?savedSort:'oldest';
   let name = read(localStorage, 'friday-name', '');
-  const names = ["Alex","Lyss","Julie","Blue","Ashe","Amanda","Emi","Wils","Michelle"];
-  if(!names.includes(name))name='';
+  let names = ["Alex","Lyss","Julie","Blue","Ashe","Amanda","Emi","Wils","Michelle"];
+  if(!live&&!names.includes(name))name='';
   let code = read(sessionStorage, 'friday-code', '');
   let data = {items:[],votes:[],people:[]}, type = 'all', tonight = null, editing = null, results = [], syncing = false;
   let draftTonight=[];
@@ -22,6 +22,25 @@
   let toastTimer;
   const toast = message => {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);};
   function persistDemo() {localStorage.setItem('friday-demo',JSON.stringify(data));}
+  function updatePeople(people){
+    if(!Array.isArray(people)||!people.length||people.some(person=>typeof person!=='string'||!person.trim()||person.length>40))return;
+    const selected=$('#name').value;
+    names=[...new Set(people)];
+    if(name&&!names.includes(name))name='';
+    const options='<option value="">Choose your name</option>'+names.map(person=>`<option value="${escape(person)}">${escape(person)}</option>`).join('');
+    $('#identity').innerHTML=options;$('#identity').value=name;
+    $('#name').innerHTML=options;$('#name').value=names.includes(selected)?selected:name;
+  }
+  async function loadPeople(){
+    const response=await fetch(config.supabaseUrl.replace(/\/$/,'')+'/rest/v1/rpc/watch_people',{method:'POST',headers:{apikey:config.supabasePublishableKey,'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(15000)});
+    if(!response.ok)return;
+    updatePeople(await response.json());render();
+  }
+  function initials(person){
+    let length=1;
+    while(length<3&&names.some(other=>other!==person&&other.toLowerCase().startsWith(person.slice(0,length).toLowerCase())))length++;
+    return person.slice(0,length);
+  }
   async function rpc(action, payload={}) {
     const response = await fetch(config.supabaseUrl.replace(/\/$/,'')+'/rest/v1/rpc/watch_api', {
       method:'POST',headers:{'Content-Type':'application/json',apikey:config.supabasePublishableKey},
@@ -32,7 +51,7 @@
     return body;
   }
   async function load() {
-    if(live) {if(!code)return;data=await rpc('list');}
+    if(live) {if(!code)return;data=await rpc('list');updatePeople(data.people);}
     else {
       data=read(localStorage,'friday-demo',{items:structuredClone(window.WATCH_SEED),votes:[],people:[]});
       // Upgrade imported titles without resetting votes, watched flags, or additions.
@@ -119,7 +138,7 @@
       const poster=typeof item.poster_path==='string'&&/^\/[\w.-]+$/.test(item.poster_path)?`https://image.tmdb.org/t/p/w500${item.poster_path}`:'';
       const imdb=/^tt\d+$/.test(item.imdb_id||'')?`<a href="https://www.imdb.com/title/${item.imdb_id}/" target="_blank" rel="noopener">IMDb ↗</a>`:'';
       const tmdb=Number.isInteger(Number(item.tmdb_id))&&Number(item.tmdb_id)>0?`<a href="https://www.themoviedb.org/${item.type==='series'?'collection':item.type==='tv'?'tv':'movie'}/${Number(item.tmdb_id)}" target="_blank" rel="noopener">TMDB ↗</a>`:'';
-      return `<article class="card" data-id="${escape(item.id)}"><div class="poster ${poster?'':'fallback'}" style="--poster-color:${['#ba02ee','#4502ee','#ee02ab','#ba02ee','#4502ee'][index%5]}">${poster?`<img src="${poster}" alt="${escape(item.title)} poster" loading="lazy">`:`<span aria-hidden="true">${escape(item.title.slice(0,1).toUpperCase())}</span>`}</div><div class="card-body"><h3><button class="title-link" data-open>${escape(displayTitle(item))}</button></h3><div class="meta"><span class="type-label">${types[item.type]||'FILM'}</span>${item.year?`<span>${escape(item.year)}</span>`:''}${item.watched?'<span>Watched ✓</span>':''}<span class="added-date">${dateLabel(item)}</span></div>${item.overview?`<p class="description">${escape(item.overview)}</p>`:''}<div class="vote-controls response-panel" role="group" aria-label="Responses to ${escape(item.title)}"><div class="people-responses">${responsePeople.map(person=>votes.find(v=>v.name===person)||{name:person,interest:'unanswered'}).map(v=>`<span class="person-response response-${v.interest}" tabindex="0" role="img" aria-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}" data-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}">${escape(({Alex:'Al',Ashe:'As',Amanda:'Am'})[v.name]||v.name.slice(0,1))}</span>`).join('')||'<span class="no-response">No responses yet</span>'}</div>${mine&&editingVote!==item.id?`<div class="saved-response response-${mine}"><button class="edit-response" aria-label="Edit your response" title="Edit your response" data-edit-vote ${view==='watched'?'disabled':''}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 15 16 3a2 2 0 0 1 5 5L9 20l-6 1z"/></svg></button></div>`:`<div class="response-buttons">${Object.entries(voteLabels).map(([value,label])=>`<button data-vote="${value}" aria-pressed="${mine===value}" ${view==='watched'?'disabled':''}>${label}</button>`).join('')}</div>`}</div><div class="series-summary">${films(item).length?`${films(item).length} films · ${completed(item,'Group')} watched by group`: ''}</div></div></article>`;
+      return `<article class="card" data-id="${escape(item.id)}"><div class="poster ${poster?'':'fallback'}" style="--poster-color:${['#ba02ee','#4502ee','#ee02ab','#ba02ee','#4502ee'][index%5]}">${poster?`<img src="${poster}" alt="${escape(item.title)} poster" loading="lazy">`:`<span aria-hidden="true">${escape(item.title.slice(0,1).toUpperCase())}</span>`}</div><div class="card-body"><h3><button class="title-link" data-open>${escape(displayTitle(item))}</button></h3><div class="meta"><span class="type-label">${types[item.type]||'FILM'}</span>${item.year?`<span>${escape(item.year)}</span>`:''}${item.watched?'<span>Watched ✓</span>':''}<span class="added-date">${dateLabel(item)}</span></div>${item.overview?`<p class="description">${escape(item.overview)}</p>`:''}<div class="vote-controls response-panel" role="group" aria-label="Responses to ${escape(item.title)}"><div class="people-responses">${responsePeople.map(person=>votes.find(v=>v.name===person)||{name:person,interest:'unanswered'}).map(v=>`<span class="person-response response-${v.interest}" tabindex="0" role="img" aria-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}" data-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}">${escape(initials(v.name))}</span>`).join('')||'<span class="no-response">No responses yet</span>'}</div>${mine&&editingVote!==item.id?`<div class="saved-response response-${mine}"><button class="edit-response" aria-label="Edit your response" title="Edit your response" data-edit-vote ${view==='watched'?'disabled':''}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 15 16 3a2 2 0 0 1 5 5L9 20l-6 1z"/></svg></button></div>`:`<div class="response-buttons">${Object.entries(voteLabels).map(([value,label])=>`<button data-vote="${value}" aria-pressed="${mine===value}" ${view==='watched'?'disabled':''}>${label}</button>`).join('')}</div>`}</div><div class="series-summary">${films(item).length?`${films(item).length} films · ${completed(item,'Group')} watched by group`: ''}</div></div></article>`;
     }).join('');
     $('#attendees').innerHTML=names.length?names.map(n=>`<label class="check-label"><input type="checkbox" value="${escape(n)}" ${draftTonight.includes(n)?'checked':''}>${escape(n)}</label>`).join(''):'<p>Your friends appear here once they join and vote.</p>';
     $('#tonight-button').textContent=tonight===null?'Who’s here tonight?':`Tonight: ${tonight.length} joining`;
@@ -137,7 +156,7 @@
   $('#join-form').addEventListener('submit',async event=>{
     event.preventDefault();const button=event.submitter||$('#join-form button[type="submit"]');button.disabled=true;$('#join-error').textContent='';
     const oldCode=code;code=$('#code').value.trim();
-    try{if(live)data=await rpc('list');name=$('#name').value.trim().replace(/\s+/g,' ');if(!name)throw new Error('Please enter a name.');localStorage.setItem('friday-name',JSON.stringify(name));sessionStorage.setItem('friday-code',JSON.stringify(code));if(!data.people.includes(name))data.people.push(name);$('#join-dialog').close();render();}
+    try{if(live){data=await rpc('list');updatePeople(data.people);}name=$('#name').value.trim().replace(/\s+/g,' ');if(!name)throw new Error('Please enter a name.');localStorage.setItem('friday-name',JSON.stringify(name));sessionStorage.setItem('friday-code',JSON.stringify(code));if(!data.people.includes(name))data.people.push(name);$('#join-dialog').close();render();}
     catch(error){code=oldCode;$('#join-error').textContent=error.message;}finally{button.disabled=false;}
   });
   $('#leave').onclick=()=>{localStorage.removeItem('friday-name');sessionStorage.removeItem('friday-code');name='';code='';if(live)data={items:[],votes:[],people:[]};$('#join-dialog').close();render();};
@@ -248,6 +267,7 @@
   }
 
   $('#lookup-form').hidden=!live;
+  if(live)void loadPeople().catch(()=>{});
   load().catch(e=>{toast(e.message);join();});
   if(live&&!code)join();
   // Refresh between interactions; never repaint an open form or an active write.

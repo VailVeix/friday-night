@@ -17,7 +17,9 @@ test('publishing requires a backend and rejects privileged keys',()=>{
 });
 test('build includes series and only public website assets',()=>{
   const result=build({SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:'sb_publishable_test'});
-  assert.equal(result.copied.length,5);
+  assert.equal(result.copied.length,8);
+  assert.ok(result.copied.some(p=>p.endsWith(require('node:path').join('admin','index.html'))));
+  assert.ok(result.copied.some(p=>p.endsWith(require('node:path').join('admin','admin.js'))));
   assert.ok(result.copied.some(p=>p.endsWith('series.js')));
   assert.ok(!result.copied.some(p=>p.endsWith('.sql')));
   assert.ok([...result.written.values()].some(s=>s.includes('sb_publishable_test')));

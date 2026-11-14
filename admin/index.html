@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Friday Night · Admin</title>
+  <link rel="stylesheet" href="../style.css"><link rel="stylesheet" href="admin.css">
+  <script src="../config.js" defer></script><script src="admin.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="../">friday night<span class="brand-dot">.</span></a><a href="../" class="back-link">Back to watch list</a></header>
+  <main class="admin-main">
+    <section id="login-panel" class="admin-panel" aria-labelledby="login-title">
+      <p class="eyebrow">ADMIN</p><h1 id="login-title">Your guest list.</h1>
+      <p class="intro">Sign in to add people to Friday Night.</p>
+      <form id="admin-login">
+        <label for="admin-password">Admin password</label>
+        <input id="admin-password" name="password" type="password" autocomplete="current-password" required maxlength="72">
+        <button type="submit" class="primary">Sign in</button>
+      </form>
+      <p id="login-error" class="error" role="alert"></p>
+    </section>
+    <section id="manage-panel" hidden aria-labelledby="people-title">
+      <div class="admin-heading"><div><p class="eyebrow">ADMIN</p><h1 id="people-title">People <span id="people-count"></span></h1></div><button id="admin-logout" class="secondary">Sign out</button></div>
+      <form id="add-person" class="admin-panel">
+        <label for="person-name">Add someone</label>
+        <div class="add-person-row"><input id="person-name" name="name" type="text" autocomplete="off" maxlength="40" placeholder="Their name" required><button type="submit" class="primary">Add person</button></div>
+        <p id="people-error" class="error" role="alert"></p>
+        <p id="people-status" class="admin-status" role="status"></p>
+      </form>
+      <ul id="people-list" class="admin-people" aria-label="People on the watch list"></ul>
+      <details class="admin-panel password-settings"><summary>Change admin password</summary>
+        <form id="change-password">
+          <label for="new-password">New password</label><input id="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="72" required>
+          <label for="confirm-password">Confirm password</label><input id="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="72" required>
+          <p class="hint">At least 12 characters. Keep this separate from the group code.</p>
+          <button class="primary" type="submit">Save password</button>
+          <p id="password-error" class="error" role="alert"></p><p id="password-status" class="admin-status" role="status"></p>
+        </form>
+      </details>
+    </section>
+  </main>
+</body>
+</html>

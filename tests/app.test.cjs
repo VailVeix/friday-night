@@ -5,7 +5,7 @@ const vm=require('node:vm');
 const path=require('node:path');
 const root=path.join(__dirname,'..');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network call');}, initialDemo=null) {
+function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network call');}, initialDemo=null, roster=['Alex','Lyss','Julie','Blue','Ashe','Amanda','Emi','Wils','Michelle']) {
   const elements=new Map();
   const get=s=>{if(!elements.has(s))elements.set(s,{
     value:s==='#sort'?'oldest':s==='#add-type'?'movie':'',textContent:'',innerHTML:'',hidden:false,checked:false,disabled:false,dataset:{},listeners:{},
@@ -17,7 +17,8 @@ function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network 
   const store=()=>{const map=new Map();return {getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)};};
   const localStorage=store(),sessionStorage=store();
   if(initialDemo)localStorage.setItem('friday-demo',JSON.stringify(initialDemo));
-  const context=vm.createContext({window:{WATCH_CONFIG:config},document:{querySelector:get,querySelectorAll:s=>s==='[data-type]'?tabs:[],hidden:false,activeElement:null},localStorage,sessionStorage,fetch:fetchImpl,AbortSignal,structuredClone,crypto:globalThis.crypto,setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Blob,URL,console});
+  const fetch=(url,options)=>url.endsWith('/rpc/watch_people')?Promise.resolve({ok:true,json:async()=>roster}):fetchImpl(url,options);
+  const context=vm.createContext({window:{WATCH_CONFIG:config},document:{querySelector:get,querySelectorAll:s=>s==='[data-type]'?tabs:[],hidden:false,activeElement:null},localStorage,sessionStorage,fetch,AbortSignal,structuredClone,crypto:globalThis.crypto,setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Blob,URL,console});
   vm.runInContext(fs.readFileSync(path.join(root,'seed.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'series.js'),'utf8'),context);
   // Unit scenarios use actual responses, not the visual sample data.
@@ -136,4 +137,19 @@ test('catalog links are valid and uncertain versions are not silently assigned',
   for(const item of items){if(item.imdb_id)assert.match(item.imdb_id,/^tt\d+$/);assert.ok(item.original_title);assert.ok(item.source_url?.startsWith('https://'));}
   for(const title of ['House Arrest','Survivor']){const item=items.find(i=>i.title===title);assert.equal(item.match_status,'needs_confirmation');assert.equal(item.imdb_id,undefined);}
   const charmed=items.find(i=>i.title==='Charmed');assert.equal(charmed.year,'1998');assert.equal(charmed.imdb_id,'tt0158552');
+});
+test('admin-added people appear in both name menus, responses and attendance',async()=>{
+  const people=['Alex','Wils','Michelle','Jo <friend>'];let vote;
+  const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async(url,options)=>{
+    const body=JSON.parse(options.body);
+    if(body.p_action==='vote')vote=body.p_payload;
+    if(url.endsWith('/metadata'))return {ok:true,json:async()=>null};
+    return {ok:true,json:async()=>body.p_action==='list'?{items:[{id:'test-title',title:'Movie',type:'movie',tmdb_id:1}],votes:[],people}:true};
+  },null,people);
+  await tick();
+  assert.ok(h.get('#name').innerHTML.includes('Jo &lt;friend&gt;'));assert.ok(h.get('#identity').innerHTML.includes('Jo &lt;friend&gt;'));
+  await h.join('Jo <friend>','test-code');
+  assert.ok(h.get('#grid').innerHTML.includes('aria-label="Jo &lt;friend&gt;: Not answered'));
+  assert.ok(h.get('#attendees').innerHTML.includes('Jo &lt;friend&gt;'));
+  await h.vote('test-title','interested');assert.equal(vote.name,'Jo <friend>');
 });
