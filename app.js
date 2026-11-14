@@ -13,7 +13,7 @@
   let name = read(localStorage, 'friday-name', '');
   let names = ["Alex","Lyss","Julie","Blue","Ashe","Amanda","Emi","Wils","Michelle"];
   if(!live&&!names.includes(name))name='';
-  let code = read(sessionStorage, 'friday-code', '');
+  let code = read(localStorage, 'friday-code', '') || read(sessionStorage, 'friday-code', '');
   const savedTonight=read(localStorage,'friday-tonight',[]);
   const savedAttendees=Array.isArray(savedTonight)?[...new Set(savedTonight.filter(person=>typeof person==='string'&&person.trim()&&person.length<=40))]:[];
   let data = {items:[],votes:[],people:[]}, type = 'all', tonight = savedAttendees.length?savedAttendees:null, editing = null, results = [], syncing = false;
@@ -25,6 +25,7 @@
   let toastTimer;
   const toast = message => {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);};
   function persistDemo() {localStorage.setItem('friday-demo',JSON.stringify(data));}
+  function rememberCode(){if(!live||!code)return;try{localStorage.setItem('friday-code',JSON.stringify(code));sessionStorage.removeItem('friday-code');}catch{try{sessionStorage.setItem('friday-code',JSON.stringify(code));}catch{}}}
   function persistTonight(){try{if(tonight)localStorage.setItem('friday-tonight',JSON.stringify(tonight));else localStorage.removeItem('friday-tonight');}catch{}}
   function updatePeople(people){
     if(!Array.isArray(people)||!people.length||people.some(person=>typeof person!=='string'||!person.trim()||person.length>40))return;
@@ -55,7 +56,7 @@
     return body;
   }
   async function load() {
-    if(live) {if(!code)return;data=await rpc('list');updatePeople(data.people);}
+    if(live) {if(!code)return;data=await rpc('list');rememberCode();updatePeople(data.people);}
     else {
       data=read(localStorage,'friday-demo',{items:structuredClone(window.WATCH_SEED),votes:[],people:[]});
       // Upgrade imported titles without resetting votes, watched flags, or additions.
@@ -163,10 +164,13 @@
   $('#join-form').addEventListener('submit',async event=>{
     event.preventDefault();const button=event.submitter||$('#join-form button[type="submit"]');button.disabled=true;$('#join-error').textContent='';
     const oldCode=code;code=$('#code').value.trim();
-    try{if(live){data=await rpc('list');updatePeople(data.people);}name=$('#name').value.trim().replace(/\s+/g,' ');if(!name)throw new Error('Please enter a name.');localStorage.setItem('friday-name',JSON.stringify(name));sessionStorage.setItem('friday-code',JSON.stringify(code));if(!data.people.includes(name))data.people.push(name);$('#join-dialog').close();render();}
+    try{if(live){data=await rpc('list');updatePeople(data.people);}name=$('#name').value.trim().replace(/\s+/g,' ');if(!name)throw new Error('Please enter a name.');localStorage.setItem('friday-name',JSON.stringify(name));rememberCode();if(!data.people.includes(name))data.people.push(name);$('#join-dialog').close();render();}
     catch(error){code=oldCode;$('#join-error').textContent=error.message;}finally{button.disabled=false;}
   });
-  $('#leave').onclick=()=>{localStorage.removeItem('friday-name');sessionStorage.removeItem('friday-code');name='';code='';if(live)data={items:[],votes:[],people:[]};$('#join-dialog').close();render();};
+  function forgetDevice(){localStorage.removeItem('friday-name');localStorage.removeItem('friday-code');sessionStorage.removeItem('friday-code');name='';code='';if(live)data={items:[],votes:[],people:[]};document.querySelectorAll('dialog[open]').forEach(dialog=>dialog.close());render();}
+  $('#leave').onclick=forgetDevice;
+  $('#forget-device').onclick=forgetDevice;
+  $('#forget-device').hidden=!live;
   $('#identity').onchange=()=>{
     editingVote=null;
     const selected=$('#identity').value;

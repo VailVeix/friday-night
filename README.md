@@ -46,6 +46,7 @@ The live deployment has the metadata function and TMDB token connected. Line-by-
 - Open a title for details, group watch history, and series checklists. Group and personal series progress are separate. Watched titles have their own view.
 - TV details automatically load seasons and episode names. Choose a season and check episodes for the group or your selected name; counts and the next group episode update as you go. Progress syncs across devices and survives archiving. Episode keys include the TMDB show ID, season, and episode number so title changes do not reset progress. Unmatched shows need **Find a match** first.
 - Everyone with the group code can choose any listed name and edit the list. Names are not separate authenticated accounts.
+- After successful entry, the group code is remembered in this browser across visits. Existing tab sessions are upgraded automatically after verification. Use **? → Forget this device’s name & code** to remove it. The separate admin password is still never saved.
 - The group code is kept in session storage for the tab; the selected name is remembered locally. Shared data refreshes every 30 seconds between interactions.
 
 ## Admin and people

@@ -5,7 +5,7 @@ const vm=require('node:vm');
 const path=require('node:path');
 const root=path.join(__dirname,'..');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network call');}, initialDemo=null, roster=['Alex','Lyss','Julie','Blue','Ashe','Amanda','Emi','Wils','Michelle']) {
+function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network call');}, initialDemo=null, roster=['Alex','Lyss','Julie','Blue','Ashe','Amanda','Emi','Wils','Michelle'], saved={}) {
   const elements=new Map();
   const get=s=>{if(!elements.has(s))elements.set(s,{
     value:s==='#sort'?'oldest':s==='#add-type'?'movie':'',textContent:'',innerHTML:'',hidden:false,checked:false,disabled:false,dataset:{},listeners:{},
@@ -16,6 +16,8 @@ function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network 
   get('#tonight-panel').hidden=true;
   const store=()=>{const map=new Map();return {getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)};};
   const localStorage=store(),sessionStorage=store();
+  for(const [key,value] of Object.entries(saved.local||{}))localStorage.setItem(key,JSON.stringify(value));
+  for(const [key,value] of Object.entries(saved.session||{}))sessionStorage.setItem(key,JSON.stringify(value));
   if(initialDemo)localStorage.setItem('friday-demo',JSON.stringify(initialDemo));
   const fetch=(url,options)=>url.endsWith('/rpc/watch_people')?Promise.resolve({ok:true,json:async()=>roster}):fetchImpl(url,options);
   const context=vm.createContext({window:{WATCH_CONFIG:config},document:{querySelector:get,querySelectorAll:s=>s==='[data-type]'?tabs:[],hidden:false,activeElement:null},localStorage,sessionStorage,fetch,AbortSignal,structuredClone,crypto:globalThis.crypto,setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Blob,URL,console});
@@ -114,11 +116,21 @@ test('live requests send group code in POST body and never put it in a URL',asyn
   const calls=[];const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'sb_publishable_public'},async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({items:[],votes:[],people:[]})};});
   assert.equal(h.get('#join-dialog').open,true);await h.join('Alex','a-long-secret-group-code');
   assert.equal(calls.length,1);assert.equal(calls[0].url,'https://example.supabase.co/rest/v1/rpc/watch_api');assert.equal(calls[0].options.method,'POST');assert.equal(JSON.parse(calls[0].options.body).p_code,'a-long-secret-group-code');
-  assert.equal(h.localStorage.getItem('friday-code'),null);assert.equal(JSON.parse(h.sessionStorage.getItem('friday-code')),'a-long-secret-group-code');
+  assert.equal(JSON.parse(h.localStorage.getItem('friday-code')),'a-long-secret-group-code');assert.equal(h.sessionStorage.getItem('friday-code'),null);
 });
 test('wrong code keeps the join dialog open without saving credentials',async()=>{
   const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async()=>({ok:false,json:async()=>({message:'Invalid group code'})}));
-  await h.join('Alex','wrong-long-group-code');assert.equal(h.get('#join-dialog').open,true);assert.equal(h.sessionStorage.getItem('friday-code'),null);assert.match(h.get('#join-error').textContent,/didn’t work/);
+  await h.join('Alex','wrong-long-group-code');assert.equal(h.get('#join-dialog').open,true);assert.equal(h.sessionStorage.getItem('friday-code'),null);assert.equal(h.localStorage.getItem('friday-code'),null);assert.match(h.get('#join-error').textContent,/didn’t work/);
+});
+
+test('saved code signs in on a fresh visit and existing tab sessions migrate after verification',async()=>{
+  for(const storage of ['local','session']){
+    const calls=[];
+    const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async(url,options)=>{calls.push(JSON.parse(options.body));return {ok:true,json:async()=>({items:[],votes:[],people:['Alex']})};},null,undefined,{[storage]:{'friday-code':'saved-group-code'},local:{'friday-name':'Alex',...(storage==='local'?{'friday-code':'saved-group-code'}:{})}});
+    await tick();assert.equal(calls[0].p_code,'saved-group-code');assert.notEqual(h.get('#join-dialog').open,true);
+    assert.equal(JSON.parse(h.localStorage.getItem('friday-code')),'saved-group-code');assert.equal(h.sessionStorage.getItem('friday-code'),null);
+    h.get('#forget-device').onclick();assert.equal(h.localStorage.getItem('friday-code'),null);assert.equal(h.localStorage.getItem('friday-name'),null);assert.equal(h.sessionStorage.getItem('friday-code'),null);
+  }
 });
 test('failed shared vote is visible and never creates a local-only vote',async()=>{
   let fail=false;const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async()=>fail?{ok:false,json:async()=>({message:'Database unavailable'})}:{ok:true,json:async()=>({items:h.context.window.WATCH_SEED,votes:[],people:[]})});
