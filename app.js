@@ -11,7 +11,7 @@
   const savedSort=read(localStorage,'friday-sort','oldest');
   $('#sort').value=['oldest','newest','title','interest','unanswered'].includes(savedSort)?savedSort:'oldest';
   let name = read(localStorage, 'friday-name', '');
-  const names = ["Alex","Lyss","Julie","Blue","Ashe","Amanda","Emi"];
+  const names = ["Alex","Lyss","Julie","Blue","Ashe","Amanda","Emi","Wils","Michelle"];
   if(!names.includes(name))name='';
   let code = read(sessionStorage, 'friday-code', '');
   let data = {items:[],votes:[],people:[]}, type = 'all', tonight = null, editing = null, results = [], syncing = false;
@@ -90,15 +90,15 @@
   function render() {
     $('#identity').value=name;
     const search=$('#search').value.toLowerCase().trim();
+    const filteringTonight=view!=='watched'&&tonight!==null;
+    const responsePeople=filteringTonight?names.filter(person=>tonight.includes(person)):names;
     const visible=data.items.filter(item=>{
-      const mine=data.votes.find(v=>v.item_id===item.id&&v.name===name)?.interest;
-      return (type==='all'||item.type===type)&&[item.title,item.original_title].some(t=>t?.toLowerCase().includes(search))&&(view==='watched'?item.watched:!item.watched)&&(view==='watched'||tonight===null||!data.votes.some(v=>v.item_id===item.id&&tonight.includes(v.name)&&v.interest==='pass'));
+      return (type==='all'||item.type===type)&&[item.title,item.original_title].some(t=>t?.toLowerCase().includes(search))&&(view==='watched'?item.watched:!item.watched)&&(!filteringTonight||!data.votes.some(v=>v.item_id===item.id&&(tonight.includes(v.name)?v.interest==='pass':v.interest==='hold')));
     });
     const assessment = item => {
       const votes=data.votes.filter(v=>v.item_id===item.id);
-      const absent=tonight===null?[]:votes.filter(v=>v.interest==='hold'&&!tonight.includes(v.name)).map(v=>v.name);
       const score=votes.filter(v=>['interested','hold'].includes(v.interest)&&(tonight===null||tonight.includes(v.name))).length;
-      return {votes,absent,score};
+      return {votes,score};
     };
     const sort=$('#sort').value;
     visible.sort((a,b)=>sort==='title'?a.title.localeCompare(b.title):['oldest','unanswered'].includes(sort)?addedOrder(a)-addedOrder(b):addedOrder(b)-addedOrder(a));
@@ -106,7 +106,7 @@
       const responded=new Set(data.votes.filter(v=>v.name===name).map(v=>v.item_id));
       visible.sort((a,b)=>Number(responded.has(a.id))-Number(responded.has(b.id)));
     }
-    if(sort==='interest')visible.sort((a,b)=>{const x=assessment(a),y=assessment(b);return Number(!!x.absent.length)-Number(!!y.absent.length)||y.score-x.score;});
+    if(sort==='interest')visible.sort((a,b)=>assessment(b).score-assessment(a).score);
     $('#sample-notice').hidden=live||!data.votes.some(v=>v.sample);
     $('#tonight-status').hidden=tonight===null||view==='watched';
     $('#tonight-status').textContent=tonight?.length?`Showing titles for ${tonight.join(', ')} · ${visible.length} matches`:'Select at least one person to see their picks.';
@@ -114,12 +114,12 @@
 
     $('#count').textContent=visible.length;$('#empty').hidden=!!visible.length;
     $('#grid').innerHTML=visible.map((item,index)=>{
-      const {votes,absent}=assessment(item), mine=votes.find(v=>v.name===name)?.interest;
+      const {votes}=assessment(item), mine=votes.find(v=>v.name===name)?.interest;
       const holds=votes.filter(v=>v.interest==='hold').map(v=>v.name), interested=votes.filter(v=>v.interest==='interested').map(v=>v.name), passes=votes.filter(v=>v.interest==='pass').map(v=>v.name);
       const poster=typeof item.poster_path==='string'&&/^\/[\w.-]+$/.test(item.poster_path)?`https://image.tmdb.org/t/p/w500${item.poster_path}`:'';
       const imdb=/^tt\d+$/.test(item.imdb_id||'')?`<a href="https://www.imdb.com/title/${item.imdb_id}/" target="_blank" rel="noopener">IMDb ↗</a>`:'';
       const tmdb=Number.isInteger(Number(item.tmdb_id))&&Number(item.tmdb_id)>0?`<a href="https://www.themoviedb.org/${item.type==='series'?'collection':item.type==='tv'?'tv':'movie'}/${Number(item.tmdb_id)}" target="_blank" rel="noopener">TMDB ↗</a>`:'';
-      return `<article class="card" data-id="${escape(item.id)}"><div class="poster ${poster?'':'fallback'}" style="--poster-color:${['#ba02ee','#4502ee','#ee02ab','#ba02ee','#4502ee'][index%5]}">${poster?`<img src="${poster}" alt="${escape(item.title)} poster" loading="lazy">`:`<span aria-hidden="true">${escape(item.title.slice(0,1).toUpperCase())}</span>`}</div><div class="card-body"><h3><button class="title-link" data-open>${escape(displayTitle(item))}</button></h3><div class="meta"><span class="type-label">${types[item.type]||'FILM'}</span>${item.year?`<span>${escape(item.year)}</span>`:''}${item.watched?'<span>Watched ✓</span>':''}<span class="added-date">${dateLabel(item)}</span></div>${item.overview?`<p class="description">${escape(item.overview)}</p>`:''}${absent.length?`<div class="warning">Save this for ${escape(absent.join(', '))} — they’re not here tonight.</div>`:''}<div class="vote-controls response-panel" role="group" aria-label="Responses to ${escape(item.title)}"><div class="people-responses">${names.map(person=>votes.find(v=>v.name===person)||{name:person,interest:'unanswered'}).map(v=>`<span class="person-response response-${v.interest}" tabindex="0" role="img" aria-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}" data-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}">${escape(({Alex:'Al',Ashe:'As',Amanda:'Am'})[v.name]||v.name.slice(0,1))}</span>`).join('')||'<span class="no-response">No responses yet</span>'}</div>${mine&&editingVote!==item.id?`<div class="saved-response response-${mine}"><button class="edit-response" aria-label="Edit your response" title="Edit your response" data-edit-vote ${view==='watched'?'disabled':''}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 15 16 3a2 2 0 0 1 5 5L9 20l-6 1z"/></svg></button></div>`:`<div class="response-buttons">${Object.entries(voteLabels).map(([value,label])=>`<button data-vote="${value}" aria-pressed="${mine===value}" ${view==='watched'?'disabled':''}>${label}</button>`).join('')}</div>`}</div><div class="series-summary">${films(item).length?`${films(item).length} films · ${completed(item,'Group')} watched by group`: ''}</div></div></article>`;
+      return `<article class="card" data-id="${escape(item.id)}"><div class="poster ${poster?'':'fallback'}" style="--poster-color:${['#ba02ee','#4502ee','#ee02ab','#ba02ee','#4502ee'][index%5]}">${poster?`<img src="${poster}" alt="${escape(item.title)} poster" loading="lazy">`:`<span aria-hidden="true">${escape(item.title.slice(0,1).toUpperCase())}</span>`}</div><div class="card-body"><h3><button class="title-link" data-open>${escape(displayTitle(item))}</button></h3><div class="meta"><span class="type-label">${types[item.type]||'FILM'}</span>${item.year?`<span>${escape(item.year)}</span>`:''}${item.watched?'<span>Watched ✓</span>':''}<span class="added-date">${dateLabel(item)}</span></div>${item.overview?`<p class="description">${escape(item.overview)}</p>`:''}<div class="vote-controls response-panel" role="group" aria-label="Responses to ${escape(item.title)}"><div class="people-responses">${responsePeople.map(person=>votes.find(v=>v.name===person)||{name:person,interest:'unanswered'}).map(v=>`<span class="person-response response-${v.interest}" tabindex="0" role="img" aria-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}" data-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}">${escape(({Alex:'Al',Ashe:'As',Amanda:'Am'})[v.name]||v.name.slice(0,1))}</span>`).join('')||'<span class="no-response">No responses yet</span>'}</div>${mine&&editingVote!==item.id?`<div class="saved-response response-${mine}"><button class="edit-response" aria-label="Edit your response" title="Edit your response" data-edit-vote ${view==='watched'?'disabled':''}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 15 16 3a2 2 0 0 1 5 5L9 20l-6 1z"/></svg></button></div>`:`<div class="response-buttons">${Object.entries(voteLabels).map(([value,label])=>`<button data-vote="${value}" aria-pressed="${mine===value}" ${view==='watched'?'disabled':''}>${label}</button>`).join('')}</div>`}</div><div class="series-summary">${films(item).length?`${films(item).length} films · ${completed(item,'Group')} watched by group`: ''}</div></div></article>`;
     }).join('');
     $('#attendees').innerHTML=names.length?names.map(n=>`<label class="check-label"><input type="checkbox" value="${escape(n)}" ${draftTonight.includes(n)?'checked':''}>${escape(n)}</label>`).join(''):'<p>Your friends appear here once they join and vote.</p>';
     $('#tonight-button').textContent=tonight===null?'Who’s here tonight?':`Tonight: ${tonight.length} joining`;

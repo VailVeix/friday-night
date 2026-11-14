@@ -1,6 +1,6 @@
 # Friday Night
 
-A shared watch list for Alex, Lyss, Julie, Blue, Ashe, Amanda, and Emi. Plain HTML, CSS, and JavaScript, hosted on GitHub Pages with a code-protected Supabase database.
+A shared watch list for Alex, Lyss, Julie, Blue, Ashe, Amanda, Emi, Wils, and Michelle. Plain HTML, CSS, and JavaScript, hosted on GitHub Pages with a code-protected Supabase database.
 
 ## Deployment status
 
@@ -39,9 +39,9 @@ The live deployment has the metadata function and TMDB token connected. Line-by-
 ## Using the list
 
 - **Absolutely**: do not watch without me. **Yes**: I want to watch but can miss it. **IDC**: I will watch; either way is fine. **Nope !**: I do not want to watch.
-- All seven initials appear on every title; grey means unanswered. After responding, use the pencil icon to edit. Clicking the selected response again clears it.
+- All nine initials appear normally; tonight shows only the selected people. Grey means unanswered. After responding, use the pencil icon to edit. Clicking the selected response again clears it.
 - Sorting remembers the last choice in this browser. With no saved choice, it defaults to date added, oldest first. Imported entries retain spreadsheet order; new additions receive timestamps.
-- **Who’s here tonight?** edits an attendee selection. **Apply** commits it and collapses the panel. A selected person's Nope ! hides a title. Other responses and unanswered titles remain eligible. Absent friends' Absolutely responses are flagged. Clear selection and Apply restores the unfiltered list.
+- **Who’s here tonight?** edits an attendee selection. **Apply** commits it and collapses the panel. A selected person's Nope ! hides a title. Other responses and unanswered titles remain eligible. Titles with an absent friend's Absolutely response are hidden. Clear selection and Apply restores the unfiltered list.
 - Open a title for details, group watch history, and series checklists. Group and personal series progress are separate. Watched titles have their own view.
 - Everyone with the group code can choose any listed name and edit the list. Names are not separate authenticated accounts.
 - The group code is kept in session storage for the tab; the selected name is remembered locally. Shared data refreshes every 30 seconds between interactions.

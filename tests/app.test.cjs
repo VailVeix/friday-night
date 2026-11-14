@@ -84,12 +84,29 @@ test('search and category filters compose',()=>{
   const h=harness();h.get('#search').value='alien';h.get('#search').listeners.input();assert.equal(h.get('#count').textContent,2);
   h.tabs.find(t=>t.dataset.type==='tv').onclick();assert.equal(h.get('#count').textContent,1);
 });
-test('tonight flags a title when a don’t-miss friend is absent',async()=>{
+test('tonight excludes absent Absolutely picks and shows only selected people',async()=>{
   const h=harness();const id=h.context.window.WATCH_SEED[0].id;await h.join('Alex');await h.vote(id,'hold');await h.join('Lyss');
   h.get('#tonight-button').onclick();
   h.get('#attendees').querySelectorAll=()=>[{value:'Lyss'}];h.get('#attendees').onchange();h.get('#tonight-apply').onclick();
-  assert.ok(h.get('#grid').innerHTML.includes('Save this for Alex'));
-  h.get('#attendees-none').onclick();h.get('#tonight-apply').onclick();assert.ok(!h.get('#grid').innerHTML.includes('Save this for Alex'));
+  assert.ok(!h.get('#grid').innerHTML.includes('data-id="'+id+'"'));
+  assert.ok(!h.get('#grid').innerHTML.includes('aria-label="Alex:'));
+  assert.ok(h.get('#grid').innerHTML.includes('aria-label="Lyss:'));
+  h.get('#attendees-none').onclick();h.get('#tonight-apply').onclick();
+  assert.ok(h.get('#grid').innerHTML.includes('data-id="'+id+'"'));
+  assert.ok(h.get('#grid').innerHTML.includes('aria-label="Alex:'));
+  assert.ok(h.get('#grid').innerHTML.includes('aria-label="Wils:'));
+  assert.ok(h.get('#grid').innerHTML.includes('aria-label="Michelle:'));
+});
+test('new members can vote and attendance applies Nope and Absolutely rules',async()=>{
+  const h=harness(),id=h.context.window.WATCH_SEED[0].id;
+  await h.join('Wils');await h.vote(id,'hold');await h.join('Michelle');await h.vote(id,'idc');
+  const select=people=>{h.get('#attendees').querySelectorAll=()=>people.map(value=>({value}));h.get('#attendees').onchange();h.get('#tonight-apply').onclick();};
+  select(['Michelle']);assert.equal(h.get('#count').textContent,45);
+  select(['Wils','Michelle']);assert.equal(h.get('#count').textContent,46);
+  await h.vote(id,'pass');assert.equal(h.get('#count').textContent,45);
+  select(['Wils']);assert.equal(h.get('#count').textContent,46);
+  assert.ok(h.get('#grid').innerHTML.includes('aria-label="Wils: Absolutely'));
+  assert.ok(!h.get('#grid').innerHTML.includes('aria-label="Michelle:'));
 });
 test('live requests send group code in POST body and never put it in a URL',async()=>{
   const calls=[];const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'sb_publishable_public'},async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({items:[],votes:[],people:[]})};});
