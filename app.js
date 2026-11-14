@@ -176,6 +176,13 @@
     render();
   };
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
+  document.querySelectorAll('dialog').forEach(dialog=>{
+    let startedOutside=false;
+    const outside=event=>{const r=dialog.getBoundingClientRect();return event.target===dialog&&(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom);};
+    dialog.addEventListener('pointerdown',event=>{startedOutside=outside(event);});
+    dialog.addEventListener('pointercancel',()=>{startedOutside=false;});
+    dialog.addEventListener('click',event=>{if(startedOutside&&outside(event))dialog.close();startedOutside=false;});
+  });
   document.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>{type=b.dataset.type;document.querySelectorAll('[data-type]').forEach(x=>x.setAttribute('aria-pressed',x===b));render();});
   $('#search').addEventListener('input',render);
   $('#sort').addEventListener('change',()=>{
