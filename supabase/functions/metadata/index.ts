@@ -33,7 +33,8 @@ Deno.serve(async request => {
       if(typeof input.imdb_id==='string' && /^tt\d+$/.test(input.imdb_id) && resource!=='collection') {
         const found=await tmdb('/find/'+input.imdb_id+'?external_source=imdb_id');
         id=(resource==='tv'?found.tv_results:found.movie_results)?.[0]?.id;
-      }else if(typeof input.title==='string' && input.title.length<=200){
+      }
+      if(!id && typeof input.title==='string' && input.title.length<=200){
         const found=await tmdb('/search/'+resource+'?include_adult=false&query='+encodeURIComponent(input.title));
         const normalize=(v:string)=>v.toLowerCase().replace(/[^a-z0-9]/g,'').replace(/collection$/,'');
         const exact=found.results.filter((r:any)=>normalize(r.title||r.name)===normalize(input.title)&&(!input.year||String(r.release_date||r.first_air_date||'').startsWith(input.year)));

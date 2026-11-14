@@ -33,3 +33,13 @@ test('missing TMDB setup returns a useful message while preserving quick-add ind
   const handle=proxy(async()=>({ok:true}),{SUPABASE_URL:'https://example.supabase.co',WATCH_PUBLIC_KEY:'public'});
   const response=await handle({code:'correct-and-long-enough',action:'search',type:'movie',query:'Alien'});assert.equal(response.status,503);assert.match((await response.json()).error,/Quick add/);
 });
+test('missing IMDb mapping falls back to a unique exact title and year',async()=>{
+  const calls=[];const handle=proxy(async url=>{
+    calls.push(url);
+    const body=url.includes('/find/')?{tv_results:[]}:url.includes('/search/')?{results:[{id:123,name:'A test series',first_air_date:'2022-01-01'},{id:456,name:'A test series',first_air_date:'1990-01-01'}]}:url.includes('/tv/123')?{id:123,name:'A test series',first_air_date:'2022-01-01',poster_path:'/test.jpg'}:true;
+    return {ok:true,json:async()=>body};
+  });
+  const response=await handle({code:'test-code',action:'resolve',type:'tv',imdb_id:'tt1234567',title:'A test series',year:'2022'});
+  assert.equal(response.status,200);assert.equal((await response.json()).tmdb_id,123);
+  assert.ok(calls.some(url=>url.includes('/find/tt1234567')));assert.ok(calls.some(url=>url.includes('/search/tv')));
+});
