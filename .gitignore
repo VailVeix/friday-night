@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+_site/
+node_modules/
+.DS_Store
+supabase/.temp/
+.qa/
+*.log
