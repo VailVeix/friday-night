@@ -43,3 +43,9 @@ test('missing IMDb mapping falls back to a unique exact title and year',async()=
   assert.equal(response.status,200);assert.equal((await response.json()).tmdb_id,123);
   assert.ok(calls.some(url=>url.includes('/find/tt1234567')));assert.ok(calls.some(url=>url.includes('/search/tv')));
 });
+test('line-by-line titles can use a parenthesized year and rewatch note',async()=>{
+  const calls=[];const handle=proxy(async url=>{calls.push(url);return {ok:true,json:async()=>url.includes('/search/')?{results:[{id:12,title:'Example',release_date:'1996-01-01'},{id:34,title:'Example',release_date:'2025-01-01'}]}:url.includes('/movie/')?{id:12,poster_path:'/example.jpg'}:true};});
+  const result=await handle({code:'test-code',action:'resolve',type:'movie',title:'Example (1996) (rewatch)'});
+  assert.equal((await result.json()).tmdb_id,12);assert.ok(calls.some(url=>url.endsWith('query=Example')));
+  const ambiguous=await handle({code:'test-code',action:'resolve',type:'movie',title:'Example'});assert.equal(await ambiguous.json(),null);
+});

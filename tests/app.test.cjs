@@ -55,6 +55,31 @@ test('quick add deduplicates and escapes title HTML',async()=>{
   await h.get('#quick-form').onsubmit(h.event());
   assert.equal(h.data().items.length,48);assert.ok(h.get('#grid').innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;'));assert.ok(!h.get('#grid').innerHTML.includes('<img src=x'));
 });
+test('live line-by-line add resolves each title and saves matched details',async()=>{
+  let added;const lookups=[];
+  const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async(url,options)=>{
+    const body=JSON.parse(options.body);
+    if(url.endsWith('/metadata')){lookups.push(body);return {ok:true,json:async()=>body.title==='Matched (2025)'?{tmdb_id:42,poster_path:'/poster.jpg',year:'2025'}:null};}
+    if(body.p_action==='add')added=body.p_payload.items;
+    return {ok:true,json:async()=>body.p_action==='list'?{items:[],votes:[],people:[]}:true};
+  });
+  await h.join('Alex','test-code');h.get('#quick-titles').value='Matched (2025)\nAmbiguous\nMatched (2025)';
+  await h.get('#quick-form').onsubmit(h.event());
+  assert.deepEqual(lookups.map(x=>x.title),['Matched (2025)','Ambiguous']);
+  assert.ok(lookups.every(x=>x.action==='resolve'&&x.type==='movie'));
+  assert.equal(added[0].tmdb_id,42);assert.equal(added[0].poster_path,'/poster.jpg');assert.equal(added[1].title,'Ambiguous');assert.equal(added[1].tmdb_id,undefined);
+  assert.match(h.get('#toast').textContent,/1 of 2 titles matched/);
+});
+test('line-by-line titles are still saved when poster lookup is unavailable',async()=>{
+  let added;
+  const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async(url,options)=>{
+    if(url.endsWith('/metadata'))return {ok:false,json:async()=>({error:'Lookup unavailable'})};
+    const body=JSON.parse(options.body);if(body.p_action==='add')added=body.p_payload.items;
+    return {ok:true,json:async()=>body.p_action==='list'?{items:[],votes:[],people:[]}:true};
+  });
+  await h.join('Alex','test-code');h.get('#quick-titles').value='First\nSecond';
+  await h.get('#quick-form').onsubmit(h.event());assert.equal(added.length,2);assert.match(h.get('#toast').textContent,/Lookup is unavailable/);
+});
 test('search and category filters compose',()=>{
   const h=harness();h.get('#search').value='alien';h.get('#search').listeners.input();assert.equal(h.get('#count').textContent,2);
   h.tabs.find(t=>t.dataset.type==='tv').onclick();assert.equal(h.get('#count').textContent,1);

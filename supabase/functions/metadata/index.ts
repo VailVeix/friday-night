@@ -35,9 +35,13 @@ Deno.serve(async request => {
         id=(resource==='tv'?found.tv_results:found.movie_results)?.[0]?.id;
       }
       if(!id && typeof input.title==='string' && input.title.length<=200){
-        const found=await tmdb('/search/'+resource+'?include_adult=false&query='+encodeURIComponent(input.title));
+        let title=input.title.trim().replace(/\s*\(rewatch\)\s*$/i,'');
+        const dated=title.match(/\s*\((\d{4})\)\s*$/);
+        const year=input.year||dated?.[1];
+        if(dated)title=title.slice(0,dated.index).trim();
+        const found=await tmdb('/search/'+resource+'?include_adult=false&query='+encodeURIComponent(title));
         const normalize=(v:string)=>v.toLowerCase().replace(/[^a-z0-9]/g,'').replace(/collection$/,'');
-        const exact=found.results.filter((r:any)=>normalize(r.title||r.name)===normalize(input.title)&&(!input.year||String(r.release_date||r.first_air_date||'').startsWith(input.year)));
+        const exact=found.results.filter((r:any)=>normalize(r.title||r.name)===normalize(title)&&(resource==='collection'||!year||String(r.release_date||r.first_air_date||'').startsWith(year)));
         if(exact.length===1)id=exact[0].id;
       }
       if(!id)return json(null);

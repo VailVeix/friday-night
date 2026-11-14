@@ -15,7 +15,7 @@
   let data = {items:[],votes:[],people:[]}, type = 'all', tonight = null, editing = null, results = [], syncing = false;
   let draftTonight=[];
   let editingVote=null;
-  let view='browse', detailId=null, autoRunning=false;
+  let view='browse', detailId=null, autoRunning=false, quickAdding=false;
   const attempted=new Set();
   let toastTimer;
   const toast = message => {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);};
@@ -170,7 +170,18 @@
   $('#quick-form').onsubmit=async event=>{
     event.preventDefault();const button=event.submitter||$('#quick-submit');const titles=[...new Set($('#quick-titles').value.split(/\r?\n/).map(t=>t.trim()).filter(Boolean))];
     if(!titles.length||titles.length>100||titles.some(t=>t.length>200)){ $('#add-error').textContent='Add 1–100 titles, each under 200 characters.';return;}
-    button.disabled=true;try{await mutate('add',{items:titles.map(title=>({title,type:$('#add-type').value}))});$('#add-dialog').close();toast('Added to the list. Existing titles were skipped.');}catch(e){$('#add-error').textContent=e.message;}finally{button.disabled=false;}
+    const items=titles.map(title=>({title,type:$('#add-type').value}));
+    const label=button.textContent;let matched=0,lookupFailed=false;
+    button.disabled=true;quickAdding=true;$('#add-error').textContent='';
+    try{
+      if(live)for(const [index,item] of items.entries()){
+        button.textContent=`Matching ${index+1} of ${items.length}…`;
+        try{const details=await metadata({action:'resolve',type:item.type,title:item.title});if(details){Object.assign(item,details);matched++;}}
+        catch{lookupFailed=true;break;}
+      }
+      button.textContent='Adding…';await mutate('add',{items});$('#add-dialog').close();
+      toast(!live?'Added to the list. Existing titles were skipped.':lookupFailed?'Titles added. Lookup is unavailable; details can be matched later.':`${matched} of ${items.length} titles matched. Added to the list; existing titles were skipped.`);
+    }catch(e){$('#add-error').textContent=e.message;}finally{button.disabled=false;button.textContent=label;quickAdding=false;}
   };
   $('#lookup-form').onsubmit=async event=>{
     event.preventDefault();const button=event.submitter||$('#lookup-form button[type="submit"]');button.disabled=true;$('#lookup-status').textContent='Looking for matches…';$('#results').replaceChildren();
@@ -198,6 +209,7 @@
     const list=films(item);
     $('#detail-content').innerHTML='<p class="eyebrow">'+types[item.type]+'</p><h2>'+escape(displayTitle(item))+'</h2><p class="detail-meta">'+dateLabel(item)+'</p>'+
       (item.overview?'<p>'+escape(item.overview)+'</p>':'')+
+      (live&&!item.tmdb_id?'<p><button class="secondary" data-match>Find a match</button></p>':'')+
       (item.imdb_id?'<a href="https://www.imdb.com/title/'+escape(item.imdb_id)+'/" target="_blank" rel="noopener">View on IMDb ↗</a>':'')+
       (list.length?'<h3>Series progress</h3><p class="hint">Release order'+(item.title==='The Muppets'?' · Theatrical films':'')+'. Group and personal progress are tracked separately.</p><div class="progress-heading"><span>Film</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+list.map((f,index)=>'<div class="film-row"><span><b>'+escape(f[0])+'</b><small>'+f[1]+'</small></span>'+['Group',name].map(person=>'<label><span class="sr-only">'+escape(f[0])+' watched by '+escape(person||'you')+'</span><input type="checkbox" data-film="'+index+'" data-person="'+escape(person)+'" '+(done(item,f,person)?'checked':'')+' '+(!name?'disabled':'')+'></label>').join('')+'</div>').join(''):'')+
       '<div class="history-actions"><h3>Group watch history</h3><p class="hint">Move this '+(list.length?'series':'title')+' between the watch list and Watched.</p><button class="secondary" data-archive>'+ (item.watched?'Move back to watch list':'Move to Watched')+'</button></div>'+
@@ -209,18 +221,19 @@
     try{await mutate('progress',{id:item.id,film:filmKey(films(item)[Number(input.dataset.film)]),name:input.dataset.person,watched:input.checked});renderDetail();}catch(e){input.checked=!input.checked;toast(e.message);}finally{input.disabled=false;}
   };
   $('#detail-content').onclick=async event=>{
+    if(event.target.closest('[data-match]')){if(!requireName())return;const item=data.items.find(i=>i.id===detailId);$('#detail-dialog').close();openAdd(item);return;}
     const button=event.target.closest('[data-archive]');if(!button||!requireName())return;
     const item=data.items.find(i=>i.id===detailId);button.disabled=true;
     try{await mutate('watched',{id:item.id,watched:!item.watched});$('#detail-dialog').close();}catch(e){toast(e.message);}finally{button.disabled=false;}
   };
   async function autoDetails(){
-    if(!live||!code||autoRunning)return;autoRunning=true;
+    if(!live||!code||autoRunning||quickAdding)return;autoRunning=true;
     try{for(const item of data.items){
       if(item.tmdb_id||attempted.has(item.id)||item.match_status==='needs_confirmation')continue;
       attempted.add(item.id);
       try{const details=await metadata({action:'resolve',type:item.type,imdb_id:item.imdb_id,title:item.lookup_title||displayTitle(item),year:item.year});
         if(details){await rpc('details',{id:item.id,details});Object.assign(item,details);}
-      }catch{break;}
+      }catch{attempted.delete(item.id);break;}
     }if(!document.querySelector('dialog[open]'))render();}finally{autoRunning=false;}
   }
 

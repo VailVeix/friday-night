@@ -29,6 +29,8 @@ References: [GitHub Pages workflows](https://docs.github.com/en/pages/getting-st
 
 Metadata is optional and is not required for sharing votes or tracking progress.
 
+The live deployment has the metadata function and TMDB token connected. Line-by-line adds attempt to match each title before saving; include a year in parentheses to distinguish versions. Unique matches receive posters and details. Unmatched titles are still saved and offer **Find a match** in their details. A lookup outage does not prevent adding titles.
+
 1. Obtain a TMDB API Read Access Token.
 2. Set the Supabase Edge Function secrets `TMDB_READ_TOKEN` and `WATCH_PUBLIC_KEY` (the latter is the project's public publishable key).
 3. Deploy `supabase/functions/metadata/index.ts` as `metadata`, with gateway JWT verification off. The function checks the private group code with `watch_api` before querying TMDB. CLI configuration is in `supabase/config.toml`.
