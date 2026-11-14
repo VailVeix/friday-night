@@ -21,6 +21,7 @@
   let editingVote=null;
   let view='browse', detailId=null, autoRunning=false, quickAdding=false;
   const attempted=new Set();
+  const tvShows=new Map();
   let toastTimer;
   const toast = message => {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);};
   function persistDemo() {localStorage.setItem('friday-demo',JSON.stringify(data));}
@@ -239,23 +240,75 @@
   function filmKey(f){return f[0]+' ('+f[1]+')';}
   function done(item,f,person){return (data.progress||[]).some(p=>p.item_id===item.id&&p.film===filmKey(f)&&p.name===person);}
   function completed(item,person){return films(item).filter(f=>done(item,f,person)).length;}
-  function openDetail(item){detailId=item.id;renderDetail();if(!$('#detail-dialog').open)$('#detail-dialog').showModal();}
+  function openDetail(item){detailId=item.id;renderDetail();if(!$('#detail-dialog').open)$('#detail-dialog').showModal();if(item.type==='tv'&&item.tmdb_id&&live)void loadTv(item);}
+  function episodeKey(item,season,episode){return `tv:${item.tmdb_id}:${season}:${episode}`;}
+  function episodeDone(item,season,episode,person){return (data.progress||[]).some(p=>p.item_id===item.id&&p.name===person&&p.film===episodeKey(item,season,episode));}
+  function seasonCount(item,season,person){return (data.progress||[]).filter(p=>p.item_id===item.id&&p.name===person&&p.film.startsWith(`tv:${item.tmdb_id}:${season}:`)).length;}
+  async function loadTv(item,season){
+    let state=tvShows.get(item.tmdb_id);
+    if(!state){state={seasons:null,episodes:new Map(),selected:null,request:0,loading:false,error:'',saving:false};tvShows.set(item.tmdb_id,state);}
+    if(season!==undefined)state.selected=season;
+    const request=++state.request;state.loading=true;state.error='';
+    const repaint=()=>{if(detailId===item.id&&$('#detail-dialog').open)renderDetail();};
+    repaint();
+    try{
+      if(!state.seasons)state.seasons=await metadata({action:'seasons',type:'tv',id:Number(item.tmdb_id)});
+      if(request!==state.request)return;
+      if(state.selected===null)state.selected=state.seasons.find(s=>s.number>0&&seasonCount(item,s.number,'Group')<s.episode_count)?.number??state.seasons[0]?.number??null;
+      const selected=state.selected;
+      if(selected!==null&&!state.episodes.has(selected)){
+        const episodes=await metadata({action:'episodes',type:'tv',id:Number(item.tmdb_id),season:selected});
+        state.episodes.set(selected,episodes);
+      }
+    }catch(e){if(request===state.request)state.error=e.message;}
+    finally{if(request===state.request){state.loading=false;repaint();}}
+  }
+  function tvTracker(item){
+    if(item.type!=='tv')return '';
+    const heading='<section class="tv-tracker" aria-label="Episode progress"><h3>Episode progress</h3>';
+    if(!live)return heading+'<p class="hint">Season and episode lists are available on the shared site.</p></section>';
+    if(!item.tmdb_id)return heading+'<p class="hint">Find a match above to load this show’s seasons and episodes.</p></section>';
+    const state=tvShows.get(item.tmdb_id);
+    if(!state)return heading+'<p class="hint" role="status">Loading seasons…</p></section>';
+    const seasons=state.seasons||[],episodes=state.episodes.get(state.selected)||[];
+    const picker=seasons.length?'<label class="season-picker">Season<select data-season aria-label="Season">'+seasons.map(s=>`<option value="${s.number}" ${s.number===state.selected?'selected':''}>${escape(s.name)} · ${seasonCount(item,s.number,'Group')}/${s.episode_count} group watched</option>`).join('')+'</select></label>':'';
+    if(state.error)return heading+picker+`<p class="error" role="alert">${escape(state.error)}</p><button class="secondary" data-tv-retry>Try again</button></section>`;
+    if(state.loading)return heading+picker+'<p class="hint" role="status">Loading episodes…</p></section>';
+    if(!episodes.length)return heading+picker+'<p class="hint">No episodes listed yet.</p></section>';
+    const count=person=>episodes.filter(e=>episodeDone(item,state.selected,e.number,person)).length;
+    const next=episodes.find(e=>!episodeDone(item,state.selected,e.number,'Group'));
+    const summary=`<div class="episode-counts"><span>Group <b>${count('Group')}/${episodes.length}</b></span>${name?`<span>${escape(name)} <b>${count(name)}/${episodes.length}</b></span>`:''}</div><p class="hint">${next?`Next for the group: episode ${next.number} · ${escape(next.name)}`:'Season complete for the group ✓'}</p>`;
+    return heading+picker+summary+'<div class="progress-heading"><span>Episode</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+episodes.map(e=>`<div class="film-row episode-row"><span><b><span class="episode-number">${e.number}.</span> ${escape(e.name)}</b>${e.air_date&&e.air_date>new Date().toISOString().slice(0,10)?`<small>Upcoming · ${escape(e.air_date)}</small>`:''}</span>`+['Group',name].map(person=>`<label><span class="sr-only">Season ${state.selected}, episode ${e.number} watched by ${escape(person||'you')}</span><input type="checkbox" data-episode="${e.number}" data-season-number="${state.selected}" data-person="${escape(person)}" ${episodeDone(item,state.selected,e.number,person)?'checked':''} ${!name||state.saving?'disabled':''}></label>`).join('')+'</div>').join('')+'</section>';
+  }
   function renderDetail(){
     const item=data.items.find(i=>i.id===detailId);if(!item)return;
     const list=films(item);
     $('#detail-content').innerHTML='<p class="eyebrow">'+types[item.type]+'</p><h2>'+escape(displayTitle(item))+'</h2><p class="detail-meta">'+dateLabel(item)+'</p>'+
       (item.overview?'<p>'+escape(item.overview)+'</p>':'')+
       (live&&!item.tmdb_id?'<p><button class="secondary" data-match>Find a match</button></p>':'')+
-      (item.imdb_id?'<a href="https://www.imdb.com/title/'+escape(item.imdb_id)+'/" target="_blank" rel="noopener">View on IMDb ↗</a>':'')+
+      (item.imdb_id?'<a href="https://www.imdb.com/title/'+escape(item.imdb_id)+'/" target="_blank" rel="noopener">View on IMDb ↗</a>':'')+tvTracker(item)+
       (list.length?'<h3>Series progress</h3><p class="hint">Release order'+(item.title==='The Muppets'?' · Theatrical films':'')+'. Group and personal progress are tracked separately.</p><div class="progress-heading"><span>Film</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+list.map((f,index)=>'<div class="film-row"><span><b>'+escape(f[0])+'</b><small>'+f[1]+'</small></span>'+['Group',name].map(person=>'<label><span class="sr-only">'+escape(f[0])+' watched by '+escape(person||'you')+'</span><input type="checkbox" data-film="'+index+'" data-person="'+escape(person)+'" '+(done(item,f,person)?'checked':'')+' '+(!name?'disabled':'')+'></label>').join('')+'</div>').join(''):'')+
       '<div class="history-actions"><h3>Group watch history</h3><p class="hint">Move this '+(list.length?'series':'title')+' between the watch list and Watched.</p><button class="secondary" data-archive>'+ (item.watched?'Move back to watch list':'Mark group watched')+'</button></div>';
   }
   $('#detail-content').onchange=async event=>{
+    const tvItem=data.items.find(i=>i.id===detailId);
+    if(event.target.matches('[data-season]')){void loadTv(tvItem,Number(event.target.value));return;}
+    const episode=event.target.closest('[data-episode]');
+    if(episode){
+      if(!requireName()){episode.checked=!episode.checked;return;}
+      const state=tvShows.get(tvItem.tmdb_id);state.saving=true;
+      $('#detail-content').querySelectorAll('[data-episode]').forEach(input=>input.disabled=true);
+      try{await mutate('progress',{id:tvItem.id,film:episodeKey(tvItem,Number(episode.dataset.seasonNumber),Number(episode.dataset.episode)),name:episode.dataset.person,watched:episode.checked});}
+      catch(e){toast(e.message);}
+      finally{state.saving=false;if(detailId===tvItem.id&&$('#detail-dialog').open)renderDetail();}
+      return;
+    }
     const input=event.target.closest('[data-film]');if(!input||!requireName())return;
     const item=data.items.find(i=>i.id===detailId);input.disabled=true;
     try{await mutate('progress',{id:item.id,film:filmKey(films(item)[Number(input.dataset.film)]),name:input.dataset.person,watched:input.checked});renderDetail();}catch(e){input.checked=!input.checked;toast(e.message);}finally{input.disabled=false;}
   };
   $('#detail-content').onclick=async event=>{
+    if(event.target.closest('[data-tv-retry]')){void loadTv(data.items.find(i=>i.id===detailId));return;}
     if(event.target.closest('[data-match]')){if(!requireName())return;const item=data.items.find(i=>i.id===detailId);$('#detail-dialog').close();openAdd(item);return;}
     const button=event.target.closest('[data-archive]');if(!button||!requireName())return;
     const item=data.items.find(i=>i.id===detailId);button.disabled=true;

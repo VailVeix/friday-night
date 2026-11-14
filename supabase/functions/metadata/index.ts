@@ -28,6 +28,16 @@ Deno.serve(async request => {
       if(!response.ok)throw new Error('TMDB is unavailable. Try again later or use quick add.');
       return response.json();
     }
+    if(input.action==='seasons'||input.action==='episodes') {
+      if(resource!=='tv'||!Number.isSafeInteger(input.id)||input.id<=0)return json({error:'Invalid TV show ID.'},400);
+      if(input.action==='seasons') {
+        const details=await tmdb('/tv/'+input.id);
+        return json((details.seasons||[]).filter((s:any)=>Number.isSafeInteger(s.season_number)&&s.season_number>=0).sort((a:any,b:any)=>(a.season_number===0?Infinity:a.season_number)-(b.season_number===0?Infinity:b.season_number)).map((s:any)=>({number:s.season_number,name:s.name||'Season '+s.season_number,episode_count:s.episode_count||0})));
+      }
+      if(!Number.isSafeInteger(input.season)||input.season<0||input.season>10000)return json({error:'Invalid season.'},400);
+      const details=await tmdb('/tv/'+input.id+'/season/'+input.season);
+      return json((details.episodes||[]).filter((e:any)=>Number.isSafeInteger(e.episode_number)&&e.episode_number>0).sort((a:any,b:any)=>a.episode_number-b.episode_number).map((e:any)=>({number:e.episode_number,name:e.name||'Episode '+e.episode_number,air_date:e.air_date||null})));
+    }
     if(input.action==='resolve') {
       let id;
       if(typeof input.imdb_id==='string' && /^tt\d+$/.test(input.imdb_id) && resource!=='collection') {

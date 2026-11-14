@@ -15,6 +15,28 @@ test('metadata rejects unauthenticated requests before contacting TMDB',async()=
   assert.equal((await handle({code:'short',action:'search',query:'Alien',type:'movie'})).status,403);assert.equal(calls,0);
   assert.equal((await handle({code:'wrong-but-long-enough',action:'search',query:'Alien',type:'movie'})).status,403);assert.equal(calls,1);
 });
+
+test('TV seasons are ordered with specials last and episodes retain stable numbers',async()=>{
+  const calls=[];const handle=proxy(async url=>{
+    calls.push(url);
+    return {ok:true,json:async()=>url.endsWith('/season/0')?{episodes:[{episode_number:2,name:'Bonus',air_date:null},{episode_number:1,name:'Pilot',air_date:'2020-01-01'}]}:url.endsWith('/tv/42')?{seasons:[{season_number:0,name:'Specials',episode_count:2},{season_number:2,name:'Season 2',episode_count:10},{season_number:1,name:'Season 1',episode_count:8}]}:true};
+  });
+  const seasons=await(await handle({code:'test-code',action:'seasons',type:'tv',id:42})).json();
+  assert.deepEqual(seasons.map(s=>s.number),[1,2,0]);assert.equal(seasons[0].episode_count,8);
+  const episodes=await(await handle({code:'test-code',action:'episodes',type:'tv',id:42,season:0})).json();
+  assert.deepEqual(episodes,[{number:1,name:'Pilot',air_date:'2020-01-01'},{number:2,name:'Bonus',air_date:null}]);
+  assert.ok(calls.some(url=>url.endsWith('/tv/42/season/0')));
+});
+
+test('TV tracker validates IDs and seasons before lookup and keeps group-code protection',async()=>{
+  let lookups=0;const handle=proxy(async url=>{if(url.includes('themoviedb'))lookups++;return {ok:true,json:async()=>({})};});
+  for(const payload of [{action:'seasons',type:'movie',id:42},{action:'seasons',type:'tv',id:'42'},{action:'episodes',type:'tv',id:42,season:-1},{action:'episodes',type:'tv',id:42,season:'1/credits'},{action:'episodes',type:'tv',id:42,season:1.5}]){
+    assert.equal((await handle({code:'test-code',...payload})).status,400);
+  }
+  assert.equal(lookups,0);
+  const denied=proxy(async()=>({ok:false}));
+  assert.equal((await denied({code:'test-code',action:'episodes',type:'tv',id:42,season:1})).status,403);
+});
 test('series search uses collections and keeps the token server-side',async()=>{
   const calls=[];const handle=proxy(async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>url.includes('/search/')?{results:[{id:8091,name:'Alien Collection',overview:'Space horror.'}]}:true};});
   const response=await handle({code:'test-code',action:'search',query:'Alien & more',type:'series'});
