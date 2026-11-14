@@ -14,14 +14,17 @@
   let names = ["Alex","Lyss","Julie","Blue","Ashe","Amanda","Emi","Wils","Michelle"];
   if(!live&&!names.includes(name))name='';
   let code = read(sessionStorage, 'friday-code', '');
-  let data = {items:[],votes:[],people:[]}, type = 'all', tonight = null, editing = null, results = [], syncing = false;
-  let draftTonight=[];
+  const savedTonight=read(localStorage,'friday-tonight',[]);
+  const savedAttendees=Array.isArray(savedTonight)?[...new Set(savedTonight.filter(person=>typeof person==='string'&&person.trim()&&person.length<=40))]:[];
+  let data = {items:[],votes:[],people:[]}, type = 'all', tonight = savedAttendees.length?savedAttendees:null, editing = null, results = [], syncing = false;
+  let draftTonight=[...savedAttendees];
   let editingVote=null;
   let view='browse', detailId=null, autoRunning=false, quickAdding=false;
   const attempted=new Set();
   let toastTimer;
   const toast = message => {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);};
   function persistDemo() {localStorage.setItem('friday-demo',JSON.stringify(data));}
+  function persistTonight(){try{if(tonight)localStorage.setItem('friday-tonight',JSON.stringify(tonight));else localStorage.removeItem('friday-tonight');}catch{}}
   function updatePeople(people){
     if(!Array.isArray(people)||!people.length||people.some(person=>typeof person!=='string'||!person.trim()||person.length>40))return;
     const selected=$('#name').value;
@@ -131,7 +134,7 @@
     $('#sample-notice').hidden=live||!data.votes.some(v=>v.sample);
     $('#tonight-status').hidden=tonight===null||view==='watched';
     $('#tonight-status').textContent=tonight?.length?`Showing titles for ${tonight.join(', ')} · ${visible.length} matches`:'Select at least one person to see their picks.';
-    $('#empty').textContent=tonight!==null&&view!=='watched'?'No matching picks. Select more people, or clear the selection and apply.':'No titles here. Try another category or search.';
+    $('#empty').textContent=tonight!==null&&view!=='watched'?'No matching picks. Select more people, or clear the selection.':'No titles here. Try another category or search.';
 
     $('#count').textContent=visible.length;$('#empty').hidden=!!visible.length;
     $('#grid').innerHTML=visible.map((item,index)=>{
@@ -184,9 +187,9 @@
   $('#attendees').onchange=()=>{draftTonight=Array.from($('#attendees').querySelectorAll('input:checked')).map(x=>x.value);render();};
   $('#remove-samples').onclick=()=>{data.votes=data.votes.filter(v=>!v.sample);persistDemo();render();};
   $('#attendees-all').onclick=()=>{draftTonight=[...names];render();};
-  $('#attendees-none').onclick=()=>{draftTonight=[];render();};
+  $('#attendees-none').onclick=()=>{draftTonight=[];tonight=null;persistTonight();render();};
   document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{view=b.dataset.view;document.querySelectorAll('[data-view]').forEach(x=>x.setAttribute('aria-pressed',x===b));render();});
-  $('#tonight-apply').onclick=()=>{tonight=draftTonight.length?[...draftTonight]:null;$('#tonight-panel').hidden=true;$('#tonight-button').setAttribute('aria-expanded','false');render();$('#tonight-button').focus();};
+  $('#tonight-apply').onclick=()=>{tonight=draftTonight.length?[...draftTonight]:null;persistTonight();$('#tonight-panel').hidden=true;$('#tonight-button').setAttribute('aria-expanded','false');render();$('#tonight-button').focus();};
   $('#refresh').onclick=async()=>{try{if(live&&!code){join();return;}await load();toast('List refreshed.');}catch(e){toast(e.message);}};
   $('#grid').onclick=async event=>{
     const button=event.target.closest('button');if(!button)return;
