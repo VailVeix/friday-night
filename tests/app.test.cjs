@@ -13,6 +13,7 @@ function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network 
     replaceChildren(){this.innerHTML='';},prepend(){},focus(){},showModal(){this.open=true;},close(){this.open=false;},querySelectorAll(){return [];}
   });return elements.get(s);};
   const tabs=['all','movie','series','tv'].map(t=>{const e=get('[data-type='+t+']');e.dataset.type=t;return e;});
+  const views=['browse','watched','personal'].map(v=>{const e=get('[data-view='+v+']');e.dataset.view=v;return e;});
   get('#tonight-panel').hidden=true;
   const store=()=>{const map=new Map();return {getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)};};
   const localStorage=store(),sessionStorage=store();
@@ -20,7 +21,7 @@ function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network 
   for(const [key,value] of Object.entries(saved.session||{}))sessionStorage.setItem(key,JSON.stringify(value));
   if(initialDemo)localStorage.setItem('friday-demo',JSON.stringify(initialDemo));
   const fetch=(url,options)=>url.endsWith('/rpc/watch_people')?Promise.resolve({ok:true,json:async()=>roster}):fetchImpl(url,options);
-  const context=vm.createContext({window:{WATCH_CONFIG:config},document:{querySelector:get,querySelectorAll:s=>s==='[data-type]'?tabs:[],hidden:false,activeElement:null},localStorage,sessionStorage,fetch,AbortSignal,structuredClone,crypto:globalThis.crypto,setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Blob,URL,console});
+  const context=vm.createContext({window:{WATCH_CONFIG:config},document:{querySelector:get,querySelectorAll:s=>s==='[data-type]'?tabs:s==='[data-view]'?views:[],hidden:false,activeElement:null},localStorage,sessionStorage,fetch,AbortSignal,structuredClone,crypto:globalThis.crypto,setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Blob,URL,console});
   vm.runInContext(fs.readFileSync(path.join(root,'seed.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'series.js'),'utf8'),context);
   // Unit scenarios use actual responses, not the visual sample data.
@@ -28,7 +29,7 @@ function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network 
   if(config.supabaseUrl)localStorage.removeItem('friday-demo');
   vm.runInContext(fs.readFileSync(path.join(root,'app.js'),'utf8'),context);
   const event=()=>({preventDefault(){},submitter:{disabled:false}});
-  return {context,get,tabs,localStorage,sessionStorage,event,
+  return {context,get,tabs,views,localStorage,sessionStorage,event,
     async join(name,code=''){get('#name').value=name;get('#code').value=code;await get('#join-form').listeners.submit(event());},
     async vote(id,interest){const button={dataset:{vote:interest},disabled:false,closest:()=>({dataset:{id}}),hasAttribute:()=>false};await get('#grid').onclick({target:{closest:()=>button}});},
     async seen(id){const button={dataset:{},disabled:false,closest:()=>({dataset:{id}}),hasAttribute:attribute=>attribute==='data-seen'};await get('#grid').onclick({target:{closest:()=>button}});},
@@ -186,4 +187,21 @@ test('a failed shared seen save is reported without marking it locally',async()=
   await h.join('Alex','test-code');await h.seen('seen-test');
   assert.match(h.get('#toast').textContent,/couldn’t be reached/);
   assert.ok(h.get('#grid').innerHTML.includes('data-seen aria-pressed="false"'));assert.equal(h.data(),null);
+});
+
+test('personal history follows the chosen name, includes group archives, and ignores tonight filters',async()=>{
+  const demo={items:[{id:'seen-film',title:'Seen film',type:'movie',watched:false},{id:'seen-show',title:'Seen show',type:'tv',watched:true},{id:'other-film',title:'Other film',type:'movie',watched:false}],votes:[{item_id:'seen-film',name:'Alex',interest:'pass'}],seen:[{item_id:'seen-film',name:'Alex'},{item_id:'seen-show',name:'Alex'},{item_id:'other-film',name:'Michelle'}],people:['Alex','Michelle']};
+  const h=harness({},undefined,demo);
+  h.views.find(v=>v.dataset.view==='personal').onclick();assert.equal(h.get('#grid').innerHTML,'');assert.match(h.get('#empty').textContent,/Choose your name/);
+  await h.join('Alex');
+  h.get('#attendees-all').onclick();h.get('#tonight-apply').onclick();
+  assert.ok(h.get('#grid').innerHTML.includes('Seen film'));assert.ok(h.get('#grid').innerHTML.includes('Seen show'));assert.ok(!h.get('#grid').innerHTML.includes('Other film'));
+  assert.equal(h.get('#tonight-status').hidden,true);assert.equal(h.get('#count').hidden,true);
+  h.tabs.find(t=>t.dataset.type==='tv').onclick();assert.ok(!h.get('#grid').innerHTML.includes('Seen film'));assert.ok(h.get('#grid').innerHTML.includes('Seen show'));
+  h.tabs.find(t=>t.dataset.type==='all').onclick();h.get('#search').value='film';h.get('#search').listeners.input();assert.ok(!h.get('#grid').innerHTML.includes('Seen show'));
+  h.get('#search').value='';h.get('#search').listeners.input();
+  await h.join('Michelle');assert.ok(h.get('#grid').innerHTML.includes('Other film'));assert.ok(!h.get('#grid').innerHTML.includes('Seen film'));
+  await h.seen('other-film');assert.equal(h.get('#grid').innerHTML,'');assert.match(h.get('#empty').textContent,/Mark titles as seen/);
+  assert.deepEqual(h.data().votes,demo.votes);assert.equal(h.data().items.find(i=>i.id==='seen-show').watched,true);
+  await h.join('Alex');h.views.find(v=>v.dataset.view==='watched').onclick();assert.ok(h.get('#grid').innerHTML.includes('Seen show'));assert.ok(!h.get('#grid').innerHTML.includes('Seen film'));
 });
