@@ -32,6 +32,7 @@ function harness(config={}, fetchImpl=async()=>{throw Error('Unexpected network 
   return {context,get,tabs,views,localStorage,sessionStorage,event,
     async join(name,code=''){get('#name').value=name;get('#code').value=code;await get('#join-form').listeners.submit(event());},
     async vote(id,interest){const button={dataset:{vote:interest},disabled:false,closest:()=>({dataset:{id}}),hasAttribute:()=>false};await get('#grid').onclick({target:{closest:()=>button}});},
+    async voteAction(id,attribute){const button={dataset:{},disabled:false,closest:()=>({dataset:{id}}),hasAttribute:value=>value===attribute};await get('#grid').onclick({target:{closest:()=>button}});},
     async seen(id){const button={dataset:{},disabled:false,closest:()=>({dataset:{id}}),hasAttribute:attribute=>attribute==='data-seen'};await get('#grid').onclick({target:{closest:()=>button}});},
     data(){return JSON.parse(localStorage.getItem('friday-demo'));}
   };
@@ -44,16 +45,44 @@ test('imports every nonempty CSV title into the correct category',()=>{
   assert.ok(items.some(i=>i.original_title==='rpdr s6'&&i.title.includes('Season 6')));assert.ok(items.some(i=>i.title==="The Emperor's New Groove"));
   assert.equal(h.get('#count').textContent,46);
 });
-test('interest replaces the previous choice and selecting it again clears it',async()=>{
+test('interest replaces the previous choice and clearing it is explicit',async()=>{
   const h=harness();await h.join('Alex');const id=h.context.window.WATCH_SEED[0].id;
   await h.vote(id,'hold');assert.equal(h.data().votes[0].interest,'hold');
   await h.vote(id,'interested');assert.equal(h.data().votes.length,1);assert.equal(h.data().votes[0].interest,'interested');
-  await h.vote(id,'interested');assert.equal(h.data().votes.length,0);
+  await h.vote(id,'interested');assert.equal(h.data().votes[0].interest,'interested');
+  await h.voteAction(id,'data-clear-vote');assert.equal(h.data().votes.length,0);
   assert.equal(h.get('#count').textContent,46);
   await h.vote(id,'idc');assert.equal(h.data().votes[0].interest,'idc');
   await h.vote(id,'pass');assert.equal(h.get('#count').textContent,46);
   h.get('#tonight-button').onclick();h.get('#attendees-all').onclick();h.get('#tonight-apply').onclick();
   assert.equal(h.get('#count').textContent,45);
+});
+
+test('Cancel and reselecting the saved pick both exit Edit without changing the vote',async()=>{
+  const h=harness();await h.join('Alex');const id=h.context.window.WATCH_SEED[0].id;
+  await h.vote(id,'interested');const saved=h.data();
+  await h.voteAction(id,'data-edit-vote');assert.match(h.get('#grid').innerHTML,/data-cancel-vote>Cancel/);
+  await h.voteAction(id,'data-cancel-vote');assert.deepEqual(h.data(),saved);assert.match(h.get('#grid').innerHTML,/Your pick: Yes/);
+  await h.voteAction(id,'data-edit-vote');await h.vote(id,'interested');
+  assert.deepEqual(h.data(),saved);assert.match(h.get('#grid').innerHTML,/Your pick: Yes/);
+  assert.ok(!h.get('#grid').innerHTML.includes('data-cancel-vote'));
+  await h.voteAction(id,'data-edit-vote');await h.voteAction(id,'data-clear-vote');assert.equal(h.data().votes.length,0);
+});
+
+test('watched titles allow new picks and editing saved picks without changing watch history',async()=>{
+  const item={id:'archived-response',title:'Backrooms',type:'movie',watched:true,watched_at:'2026-11-23T20:00:00Z',watched_on:'2026-11-23',watched_attendees:['Alex','Lyss'],watched_by:'Lyss'};
+  const h=harness({},undefined,{items:[item],votes:[],seen:[{item_id:item.id,name:'Alex'}],people:['Alex','Lyss']});
+  await h.join('Alex');h.views.find(v=>v.dataset.view==='watched').onclick();
+  assert.ok(!/data-vote="[^"]+"[^>]*disabled/.test(h.get('#grid').innerHTML),'Archived response buttons are enabled');
+  await h.vote(item.id,'interested');
+  assert.match(h.get('#grid').innerHTML,/Your pick: Yes/);
+  assert.ok(!/data-edit-vote[^>]*disabled/.test(h.get('#grid').innerHTML),'Saved response can be edited in Watched');
+  await h.vote(item.id,'hold');assert.match(h.get('#grid').innerHTML,/Your pick: ★ Wait for me/);
+  assert.deepEqual(h.data().items[0],item);assert.deepEqual(h.data().seen,[{item_id:item.id,name:'Alex'}]);
+  const reload=harness({},undefined,h.data());await reload.join('Alex');reload.views.find(v=>v.dataset.view==='watched').onclick();
+  assert.match(reload.get('#grid').innerHTML,/Your pick: ★ Wait for me/);
+  await openCard(reload,item.id);
+  assert.ok(!/data-detail-vote="[^"]+"[^>]*disabled/.test(reload.get('#detail-content').innerHTML),'Detail voting is enabled too');
 });
 test('quick add deduplicates and escapes title HTML',async()=>{
   const h=harness();await h.join('Alex');h.get('#quick-titles').value='big lebowski\nNew film\nNew film\n<img src=x onerror=alert(1)>';
@@ -142,6 +171,16 @@ const olsenDemo=()=>({items:[
   {id:'paris',title:'Passport to Paris',type:'movie',year:'1999',watched:true},
   {id:'other-version',title:'It Takes Two',type:'movie',year:'1988',watched:false}
 ],votes:[{item_id:'twins-1995',name:'Alex',interest:'hold'}],seen:[{item_id:'paris',name:'Alex'}],people:['Alex']});
+
+test('consolidated Mary-Kate and Ashley is one regular series with its own interest vote',async()=>{
+  const h=harness({},undefined,{items:[{id:'olsen-series',title:'Mary-Kate & Ashley',type:'series',films:[['It Takes Two',1995],['Passport to Paris',1999]],watched:false}],votes:[],people:[]});
+  await h.join('Alex');assert.equal(h.get('#count').textContent,1);
+  assert.match(h.get('#grid').innerHTML,/data-vote="interested"/);
+  await h.vote('olsen-series','interested');assert.match(h.get('#grid').innerHTML,/Your pick: Yes/);
+  assert.deepEqual(h.data().votes,[{item_id:'olsen-series',name:'Alex',interest:'interested'}]);
+  await openCard(h,'olsen-series');assert.match(h.get('#detail-content').innerHTML,/data-film="0"/);assert.match(h.get('#detail-content').innerHTML,/data-film="1"/);
+  assert.ok(!h.get('#detail-content').innerHTML.includes('data-member-open'));
+});
 const openCard=(h,id)=>h.get('#grid').onclick({target:{closest:()=>({closest:()=>({dataset:{id}}),hasAttribute:attribute=>attribute==='data-open'})}});
 const archiveDetail=h=>h.get('#detail-content').onclick({target:{closest:selector=>selector==='[data-archive]'?{disabled:false}:null}});
 
