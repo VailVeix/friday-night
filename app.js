@@ -25,6 +25,7 @@
   let view='browse', detailId=null, autoRunning=false, quickAdding=false, filtersOpen=false;
   const attempted=new Set();
   const tvShows=new Map();
+  const filmMetadata=new Map(),filmLookups=new Map();
   let toastTimer;
   let lookupTimer, lookupRequest=0, matchQueue=[], filmFilter='all', lookupSaving=false;
   let collections=[];
@@ -389,7 +390,38 @@
     return (data.progress||[]).some(p=>p.item_id===item.id&&p.film===filmKey(f)&&p.name===person);
   }
   function completed(item,person){return films(item).filter(f=>done(item,f,person)).length;}
-  function openDetail(item){filmFilter=item.members&&view==='watched'?'watched':'all';detailId=item.id;renderDetail();if(!$('#detail-dialog').open)$('#detail-dialog').showModal();if(item.type==='tv'&&item.tmdb_id&&live)void loadTv(item);}
+  function openDetail(item){filmFilter=item.members&&view==='watched'?'watched':'all';detailId=item.id;renderDetail();if(!$('#detail-dialog').open)$('#detail-dialog').showModal();if(item.type==='tv'&&item.tmdb_id&&live)void loadTv(item);if(item.type==='series'&&!item.members)void loadFilmMetadata(item);}
+  function filmInfo(f){return {...data.items.find(i=>i.type==='movie'&&i.title===f[0]&&String(i.year)===String(f[1])),...filmMetadata.get(filmKey(f))};}
+  function filmHref(f,details){return Number.isSafeInteger(Number(details.tmdb_id))&&Number(details.tmdb_id)>0?'https://www.themoviedb.org/movie/'+Number(details.tmdb_id):'https://www.themoviedb.org/search/movie?query='+encodeURIComponent(filmKey(f));}
+  function filmPoster(f,details){const poster=posterUrl(details);return poster?`<img src="${poster}" alt="" loading="lazy">`:`<span aria-hidden="true">${escape(f[0].slice(0,1))}</span>`;}
+  function seriesFilmCard(item,f,index){
+    const details=filmInfo(f),href=filmHref(f,details);
+    return `<article class="film-row series-film-card" data-film-card="${index}"><a class="series-film-poster" href="${escape(href)}" target="_blank" rel="noopener" aria-label="Details for ${escape(filmKey(f))}">${filmPoster(f,details)}</a><div class="series-film-info"><h4><a class="series-film-title title-link" href="${escape(href)}" target="_blank" rel="noopener">${escape(f[0])}</a></h4><div class="meta"><span class="type-label">FILM</span><span>${escape(f[1])}</span></div><p class="series-film-synopsis" ${details.overview?'':'hidden'}>${escape(details.overview||'')}</p>${groupProgressDetails(item,filmKey(f))}</div><div class="film-watch-controls">`+
+      ['Group',name].map(person=>`<label class="film-watch-control ${done(item,f,person)?'is-watched':''}"><input type="checkbox" data-film="${index}" data-person="${escape(person)}" ${done(item,f,person)?'checked':''} ${!name?'disabled':''}><span>${person==='Group'?'Group watched':'Seen by '+escape(person||'you')}</span><span class="sr-only">: ${escape(filmKey(f))}</span></label>`).join('')+'</div></article>';
+  }
+  function paintFilmMetadata(item,key){
+    if(detailId!==item.id||!$('#detail-dialog').open)return;
+    // Update imagery and text in place; leave checkboxes, focus and scroll untouched.
+    $('#detail-content').querySelectorAll('[data-film-card]').forEach(card=>{
+      const f=films(item)[Number(card.dataset.filmCard)];if(!f||filmKey(f)!==key)return;
+      const details=filmInfo(f),poster=card.querySelector('.series-film-poster'),synopsis=card.querySelector('.series-film-synopsis');
+      poster.innerHTML=filmPoster(f,details);poster.href=filmHref(f,details);
+      card.querySelector('.series-film-title').href=poster.href;
+      synopsis.textContent=details.overview||'';synopsis.hidden=!details.overview;
+    });
+  }
+  async function loadFilmMetadata(item){
+    if(!live)return;
+    const pending=films(item).filter(f=>!filmMetadata.has(filmKey(f))&&!filmInfo(f).poster_path);
+    async function worker(){
+      while(pending.length){
+        const f=pending.shift(),key=filmKey(f);
+        if(!filmLookups.has(key))filmLookups.set(key,metadata({action:'resolve',type:'movie',title:f[0],year:String(f[1])}).then(details=>{filmMetadata.set(key,details||{});}).finally(()=>filmLookups.delete(key)));
+        try{await filmLookups.get(key);paintFilmMetadata(item,key);}catch{break;}
+      }
+    }
+    await Promise.all([worker(),worker()]);
+  }
   function episodeKey(item,season,episode){return `tv:${item.tmdb_id}:${season}:${episode}`;}
   function episodeDone(item,season,episode,person){return (data.progress||[]).some(p=>p.item_id===item.id&&p.name===person&&p.film===episodeKey(item,season,episode));}
   function seasonCount(item,season,person){return (data.progress||[]).filter(p=>p.item_id===item.id&&p.name===person&&p.film.startsWith(`tv:${item.tmdb_id}:${season}:`)).length;}
@@ -450,7 +482,7 @@
       (item.overview?'<p>'+escape(item.overview)+'</p>':'')+
       (live&&!item.tmdb_id?'<p><button class="secondary" data-match>Find a match</button></p>':'')+
       (item.imdb_id?'<a href="https://www.imdb.com/title/'+escape(item.imdb_id)+'/" target="_blank" rel="noopener">View on IMDb ↗</a>':'')+tvTracker(item)+
-      (list.length?'<h3>Series progress</h3><p class="hint">'+escape(nextFilmLabel(item))+'</p><div class="film-filters" role="group" aria-label="Film progress filter">'+['all','remaining','watched'].map(value=>'<button class="secondary" data-film-filter="'+value+'" aria-pressed="'+(filmFilter===value)+'">'+({all:'All films',remaining:'Remaining',watched:'Watched'})[value]+'</button>').join('')+'</div>'+'<div class="progress-heading"><span>Film</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+shown.map(({film:f,index})=>'<div class="film-row"><span><b>'+escape(f[0])+'</b><small>'+f[1]+'</small>'+groupProgressDetails(item,filmKey(f))+'<a class="film-info" href="https://www.themoviedb.org/search/movie?query='+encodeURIComponent(filmKey(f))+'" target="_blank" rel="noopener">Film details</a></span>'+['Group',name].map(person=>'<label><span class="sr-only">'+escape(f[0])+' watched by '+escape(person||'you')+'</span><input type="checkbox" data-film="'+index+'" data-person="'+escape(person)+'" '+(done(item,f,person)?'checked':'')+' '+(!name?'disabled':'')+'></label>').join('')+'</div>').join(''):'')+
+      (list.length?'<h3>Series progress</h3><p class="hint">'+escape(nextFilmLabel(item))+'</p><div class="film-filters" role="group" aria-label="Film progress filter">'+['all','remaining','watched'].map(value=>'<button class="secondary" data-film-filter="'+value+'" aria-pressed="'+(filmFilter===value)+'">'+({all:'All films',remaining:'Remaining',watched:'Watched'})[value]+'</button>').join('')+'</div>'+shown.map(({film:f,index})=>seriesFilmCard(item,f,index)).join(''):'')+
       detailResponses(item)+'<div class="history-actions"><h3>Group watch history</h3><p class="hint">Move this '+(list.length?'series':'title')+' between the watch list and Watched.</p>'+(item.watched?watchDetails(item):'')+'<button class="secondary" data-archive>'+ (item.watched?'Move back to watch list':'Mark group watched')+'</button></div>';
   }
   $('#detail-content').onchange=async event=>{

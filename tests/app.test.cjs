@@ -181,6 +181,26 @@ test('consolidated Mary-Kate and Ashley is one regular series with its own inter
   await openCard(h,'olsen-series');assert.match(h.get('#detail-content').innerHTML,/data-film="0"/);assert.match(h.get('#detail-content').innerHTML,/data-film="1"/);
   assert.ok(!h.get('#detail-content').innerHTML.includes('data-member-open'));
 });
+
+test('series film cards load matched posters without changing progress keys and cache lookups',async()=>{
+  const lookups=[];
+  const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async(url,options)=>{
+    const body=JSON.parse(options.body);
+    if(url.endsWith('/metadata')){lookups.push(body);return {ok:true,json:async()=>body.title==='Film One'?{tmdb_id:101,poster_path:'/film-one.jpg',overview:'A <strange> adventure.'}:null};}
+    return {ok:true,json:async()=>body.p_action==='list'?{watch_details_version:2,items:[{id:'poster-series',type:'series',title:'Poster series',tmdb_id:42,films:[['Film One',2000],['Film Two',2001]]}],votes:[],people:[],progress:[{item_id:'poster-series',film:'Film One (2000)',name:'Group'}]}:true};
+  });
+  const nodes={poster:{},synopsis:{},title:{}};
+  h.get('#detail-content').querySelectorAll=selector=>selector==='[data-film-card]'?[{dataset:{filmCard:'0'},querySelector:selector=>selector==='.series-film-poster'?nodes.poster:selector==='.series-film-synopsis'?nodes.synopsis:nodes.title}]:[];
+  await h.join('Alex','test-code');await openCard(h,'poster-series');await tick();await tick();
+  assert.match(nodes.poster.innerHTML,/w500\/film-one.jpg/,'Async lookup paints the poster in place');assert.equal(nodes.synopsis.textContent,'A <strange> adventure.');
+  await h.get('#detail-content').onclick({target:{closest:selector=>selector==='[data-film-filter]'?{dataset:{filmFilter:'all'}}:null}});
+  assert.match(h.get('#detail-content').innerHTML,/w500\/film-one.jpg/);
+  assert.match(h.get('#detail-content').innerHTML,/A &lt;strange&gt; adventure/);
+  assert.match(h.get('#detail-content').innerHTML,/data-film="0" data-person="Group" checked/);
+  assert.match(h.get('#detail-content').innerHTML,/data-film-card="1"/);
+  assert.equal(lookups.length,2);assert.ok(lookups.every(l=>l.action==='resolve'&&l.type==='movie'));
+  await openCard(h,'poster-series');await tick();assert.equal(lookups.length,2,'Unmatched films and successful details are cached');
+});
 const openCard=(h,id)=>h.get('#grid').onclick({target:{closest:()=>({closest:()=>({dataset:{id}}),hasAttribute:attribute=>attribute==='data-open'})}});
 const archiveDetail=h=>h.get('#detail-content').onclick({target:{closest:selector=>selector==='[data-archive]'?{disabled:false}:null}});
 
