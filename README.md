@@ -38,6 +38,10 @@ The live deployment has the metadata function and TMDB token connected. Line-by-
 
 ## Using the list
 
+- The library uses larger posters and touch controls. Open **View films** on a film series to see its individual movies, filter **All films / Remaining / Watched**, and track group or personal progress. The next group film appears on the series card. Search also matches movies inside a series. Series with group film progress appear in **Watched** even while the series remains on the watch list.
+- In **Add title**, choose **Film**, **Film series**, or **TV show**. Shared title search runs as you type and shows poster thumbnails. Selecting a result leaves the dialog ready for another addition. Pasting one title per line still resolves exact matches automatically; after saving, a matching queue opens for unresolved titles, with suggestions and a **Skip this title** option. Skipped titles remain saved for later matching.
+- Search-result posters require redeploying `supabase/functions/metadata/index.ts`; the frontend still works with the older function but shows a placeholder for those thumbnails. No database migration is needed for these UI changes.
+
 - **Absolutely**: do not watch without me. **Yes**: I want to watch but can miss it. **IDC**: I will watch; either way is fine. **Nope !**: I do not want to watch.
 - All people on the shared roster appear normally; tonight shows only the selected people. Grey means unanswered. After responding, use the pencil icon to edit. Clicking the selected response again clears it.
 - Sorting remembers the last choice in this browser. With no saved choice, it defaults to date added, oldest first. Imported entries retain spreadsheet order; new additions receive timestamps.

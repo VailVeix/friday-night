@@ -89,6 +89,55 @@ test('search and category filters compose',()=>{
   const h=harness();h.get('#search').value='alien';h.get('#search').listeners.input();assert.equal(h.get('#count').textContent,2);
   h.tabs.find(t=>t.dataset.type==='tv').onclick();assert.equal(h.get('#count').textContent,1);
 });
+
+test('individual films are searchable and partial series progress appears in Watched',async()=>{
+  const h=harness();await h.join('Alex');
+  h.get('#search').value='Prometheus';h.get('#search').listeners.input();
+  assert.equal(h.get('#count').textContent,1);assert.match(h.get('#grid').innerHTML,/View films/);
+  const series=h.data().items.find(i=>i.title==='Alien');
+  const saved=h.data();saved.progress=[{item_id:series.id,film:'Alien (1979)',name:'Group'}];
+  const reloaded=harness({},undefined,saved);
+  reloaded.views.find(v=>v.dataset.view==='watched').onclick();
+  assert.match(reloaded.get('#grid').innerHTML,/Next: Aliens/);
+  assert.match(reloaded.get('#grid').innerHTML,/1 watched/);
+});
+
+test('lookup ignores stale responses and selecting a poster result leaves adding open',async()=>{
+  let finishOld;const added=[];
+  const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async(url,options)=>{
+    const body=JSON.parse(options.body);
+    if(url.endsWith('/metadata')){
+      if(body.action==='search'&&body.query==='Old')return new Promise(resolve=>{finishOld=()=>resolve({ok:true,json:async()=>[{tmdb_id:1,title:'Old'}]});});
+      return {ok:true,json:async()=>body.action==='search'?[{tmdb_id:2,title:'New',poster_path:'/new.jpg'}]:{tmdb_id:2,poster_path:'/new.jpg'}};
+    }
+    if(body.p_action==='add')added.push(...body.p_payload.items);
+    return {ok:true,json:async()=>body.p_action==='list'?{items:[],votes:[],people:[]}:true};
+  });
+  await h.join('Alex','test-code');h.get('#add-button').onclick();
+  h.get('#lookup').value='Old';const old=h.get('#lookup-form').onsubmit(h.event());
+  h.get('#lookup').value='New';await h.get('#lookup-form').onsubmit(h.event());finishOld();await old;
+  assert.match(h.get('#results').innerHTML,/w185\/new.jpg/);assert.ok(!h.get('#results').innerHTML.includes('>Old<'));
+  await h.get('#results').onclick({target:{closest:()=>({dataset:{result:'0'},disabled:false})}});
+  assert.equal(added[0].title,'New');assert.equal(h.get('#add-dialog').open,true);assert.equal(h.get('#lookup').value,'');
+});
+
+test('bulk unmatched titles open a queue that advances with a match or skip',async()=>{
+  const items=[],matched=[];let id=0;
+  const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async(url,options)=>{
+    const body=JSON.parse(options.body);
+    if(url.endsWith('/metadata'))return {ok:true,json:async()=>body.action==='resolve'?null:body.action==='search'?[{tmdb_id:42,title:body.query}]:{tmdb_id:42}};
+    if(body.p_action==='add')items.push(...body.p_payload.items.map(item=>({...item,id:String(++id)})));
+    if(body.p_action==='details'){matched.push(body.p_payload.id);Object.assign(items.find(i=>i.id===body.p_payload.id),body.p_payload.details);}
+    return {ok:true,json:async()=>body.p_action==='list'?{items:structuredClone(items),votes:[],people:[]}:true};
+  });
+  await h.join('Alex','test-code');h.get('#add-button').onclick();h.get('#quick-titles').value='First\nSecond';
+  await h.get('#quick-form').onsubmit(h.event());await tick();
+  assert.equal(h.get('#lookup').value,'First');assert.equal(h.get('#match-queue').hidden,false);
+  await h.get('#results').onclick({target:{closest:()=>({dataset:{result:'0'},disabled:false})}});await tick();
+  assert.deepEqual(matched,['1']);assert.equal(h.get('#lookup').value,'Second');
+  h.get('#skip-match').onclick();assert.equal(h.get('#quick-form').hidden,false);assert.equal(h.get('#match-queue').hidden,true);
+  assert.equal(items.length,2);
+});
 test('tonight excludes absent Absolutely picks and shows only selected people',async()=>{
   const h=harness();const id=h.context.window.WATCH_SEED[0].id;await h.join('Alex');await h.vote(id,'hold');await h.join('Lyss');
   h.get('#tonight-button').onclick();

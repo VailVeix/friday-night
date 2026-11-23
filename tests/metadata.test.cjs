@@ -38,9 +38,9 @@ test('TV tracker validates IDs and seasons before lookup and keeps group-code pr
   assert.equal((await denied({code:'test-code',action:'episodes',type:'tv',id:42,season:1})).status,403);
 });
 test('series search uses collections and keeps the token server-side',async()=>{
-  const calls=[];const handle=proxy(async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>url.includes('/search/')?{results:[{id:8091,name:'Alien Collection',overview:'Space horror.'}]}:true};});
+  const calls=[];const handle=proxy(async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>url.includes('/search/')?{results:[{id:8091,name:'Alien Collection',overview:'Space horror.',poster_path:'/alien.jpg'}]}:true};});
   const response=await handle({code:'test-code',action:'search',query:'Alien & more',type:'series'});
-  const results=await response.json();assert.equal(results[0].tmdb_id,8091);assert.equal(results[0].title,'Alien Collection');assert.ok(calls[1].url.includes('/search/collection?'));assert.ok(calls[1].url.includes('Alien%20%26%20more'));assert.equal(calls[1].options.headers.Authorization,'Bearer secret-token');assert.ok(!JSON.stringify(results).includes('secret-token'));
+  const results=await response.json();assert.equal(results[0].poster_path,'/alien.jpg');assert.equal(results[0].tmdb_id,8091);assert.equal(results[0].title,'Alien Collection');assert.ok(calls[1].url.includes('/search/collection?'));assert.ok(calls[1].url.includes('Alien%20%26%20more'));assert.equal(calls[1].options.headers.Authorization,'Bearer secret-token');assert.ok(!JSON.stringify(results).includes('secret-token'));
 });
 test('TV details include IMDb external IDs',async()=>{
   const calls=[];const handle=proxy(async url=>{calls.push(url);return {ok:true,json:async()=>url.includes('api.themoviedb')?{id:42,poster_path:'/poster.jpg',name:'A show',first_air_date:'2020-01-01',external_ids:{imdb_id:'tt1234567'}}:true};});

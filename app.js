@@ -23,6 +23,7 @@
   const attempted=new Set();
   const tvShows=new Map();
   let toastTimer;
+  let lookupTimer, lookupRequest=0, matchQueue=[], filmFilter='all', lookupSaving=false;
   const toast = message => {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);};
   function persistDemo() {localStorage.setItem('friday-demo',JSON.stringify(data));}
   function rememberCode(){if(!live||!code)return;try{localStorage.setItem('friday-code',JSON.stringify(code));sessionStorage.removeItem('friday-code');}catch{try{sessionStorage.setItem('friday-code',JSON.stringify(code));}catch{}}}
@@ -119,7 +120,7 @@
     const filteringTonight=view==='browse'&&tonight!==null;
     const responsePeople=filteringTonight?names.filter(person=>tonight.includes(person)):names;
     const visible=data.items.filter(item=>{
-      return (type==='all'||item.type===type)&&[item.title,item.original_title].some(t=>t?.toLowerCase().includes(search))&&(view==='personal'?hasSeen(item):view==='watched'?item.watched:!item.watched)&&(!filteringTonight||!data.votes.some(v=>v.item_id===item.id&&(tonight.includes(v.name)?v.interest==='pass':v.interest==='hold')));
+      return (type==='all'||item.type===type)&&[item.title,item.original_title,...films(item).map(f=>f[0])].some(t=>t?.toLowerCase().includes(search))&&(view==='personal'?hasSeen(item):view==='watched'?item.watched||completed(item,'Group')>0:!item.watched)&&(!filteringTonight||!data.votes.some(v=>v.item_id===item.id&&(tonight.includes(v.name)?v.interest==='pass':v.interest==='hold')));
     });
     const assessment = item => {
       const votes=data.votes.filter(v=>v.item_id===item.id);
@@ -147,15 +148,19 @@
       const poster=typeof item.poster_path==='string'&&/^\/[\w.-]+$/.test(item.poster_path)?`https://image.tmdb.org/t/p/w500${item.poster_path}`:'';
       const imdb=/^tt\d+$/.test(item.imdb_id||'')?`<a href="https://www.imdb.com/title/${item.imdb_id}/" target="_blank" rel="noopener">IMDb ↗</a>`:'';
       const tmdb=Number.isInteger(Number(item.tmdb_id))&&Number(item.tmdb_id)>0?`<a href="https://www.themoviedb.org/${item.type==='series'?'collection':item.type==='tv'?'tv':'movie'}/${Number(item.tmdb_id)}" target="_blank" rel="noopener">TMDB ↗</a>`:'';
-      return `<article class="card" data-id="${escape(item.id)}"><div class="poster ${poster?'':'fallback'}" style="--poster-color:${['#ba02ee','#4502ee','#ee02ab','#ba02ee','#4502ee'][index%5]}">${poster?`<img src="${poster}" alt="${escape(item.title)} poster" loading="lazy">`:`<span aria-hidden="true">${escape(item.title.slice(0,1).toUpperCase())}</span>`}</div><div class="card-body"><h3><button class="title-link" data-open>${escape(displayTitle(item))}</button></h3><div class="meta"><span class="type-label">${types[item.type]||'FILM'}</span>${item.year?`<span>${escape(item.year)}</span>`:''}${item.watched?'<span>Watched ✓</span>':''}<span class="added-date">${dateLabel(item)}</span></div><button class="personal-seen" data-seen aria-pressed="${seen}" aria-label="${escape((seen?'Mark as not seen: ':'Mark as seen: ')+displayTitle(item)+(name?' for '+name:''))}" title="${escape(seen?'Seen by '+name+' — click to undo':name?'Mark as seen by '+name:'Choose your name first')}">${seen?'✓ Seen':'Mark as seen'}</button>${item.overview?`<p class="description">${escape(item.overview)}</p>`:''}<div class="vote-controls response-panel" role="group" aria-label="Responses to ${escape(item.title)}"><div class="people-responses">${responsePeople.map(person=>votes.find(v=>v.name===person)||{name:person,interest:'unanswered'}).map(v=>`<span class="person-response response-${v.interest}" tabindex="0" role="img" aria-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}" data-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}">${escape(initials(v.name))}</span>`).join('')||'<span class="no-response">No responses yet</span>'}</div>${mine&&editingVote!==item.id?`<div class="saved-response response-${mine}"><button class="edit-response" aria-label="Edit your response" title="Edit your response" data-edit-vote ${item.watched?'disabled':''}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 15 16 3a2 2 0 0 1 5 5L9 20l-6 1z"/></svg></button></div>`:`<div class="response-buttons">${Object.entries(voteLabels).map(([value,label])=>`<button data-vote="${value}" aria-pressed="${mine===value}" ${item.watched?'disabled':''}>${label}</button>`).join('')}</div>`}</div><div class="series-summary">${films(item).length?`${films(item).length} films · ${completed(item,'Group')} watched by group`: ''}</div></div></article>`;
+      return `<article class="card" data-id="${escape(item.id)}"><div class="poster ${poster?'':'fallback'}" style="--poster-color:${['#ba02ee','#4502ee','#ee02ab','#ba02ee','#4502ee'][index%5]}">${poster?`<img src="${poster}" alt="${escape(item.title)} poster" loading="lazy">`:`<span aria-hidden="true">${escape(item.title.slice(0,1).toUpperCase())}</span>`}</div><div class="card-body"><h3><button class="title-link" data-open>${escape(displayTitle(item))}</button></h3><div class="meta"><span class="type-label">${types[item.type]||'FILM'}</span>${item.year?`<span>${escape(item.year)}</span>`:''}${item.watched?'<span>Watched ✓</span>':''}<span class="added-date">${dateLabel(item)}</span></div><button class="personal-seen" data-seen aria-pressed="${seen}" aria-label="${escape((seen?'Mark as not seen: ':'Mark as seen: ')+displayTitle(item)+(name?' for '+name:''))}" title="${escape(seen?'Seen by '+name+' — click to undo':name?'Mark as seen by '+name:'Choose your name first')}">${seen?'✓ Seen':'Mark as seen'}</button>${item.overview?`<p class="description">${escape(item.overview)}</p>`:''}<div class="vote-controls response-panel" role="group" aria-label="Responses to ${escape(item.title)}"><div class="people-responses">${responsePeople.map(person=>votes.find(v=>v.name===person)||{name:person,interest:'unanswered'}).map(v=>`<span class="person-response response-${v.interest}" tabindex="0" role="img" aria-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}" data-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}">${escape(initials(v.name))}</span>`).join('')||'<span class="no-response">No responses yet</span>'}</div>${mine&&editingVote!==item.id?`<div class="saved-response response-${mine}"><button class="edit-response" aria-label="Edit your response" title="Edit your response" data-edit-vote ${item.watched?'disabled':''}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 15 16 3a2 2 0 0 1 5 5L9 20l-6 1z"/></svg></button></div>`:`<div class="response-buttons">${Object.entries(voteLabels).map(([value,label])=>`<button data-vote="${value}" aria-pressed="${mine===value}" ${item.watched?'disabled':''}>${label}</button>`).join('')}</div>`}</div><div class="series-summary">${films(item).length?`<button class="series-progress-link" data-open>${films(item).length} films &middot; ${completed(item,'Group')} watched &middot; View films</button><p class="next-film">${escape(nextFilmLabel(item))}</p>`: ''}</div></div></article>`;
     }).join('');
     $('#attendees').innerHTML=names.length?names.map(n=>`<label class="check-label"><input type="checkbox" value="${escape(n)}" ${draftTonight.includes(n)?'checked':''}>${escape(n)}</label>`).join(''):'<p>Your friends appear here once they join and vote.</p>';
     $('#tonight-button').textContent=tonight===null?'Who’s here tonight?':`Tonight: ${tonight.length} joining`;
   }
   function openAdd(item=null) {
     if(!requireName())return;
+    clearTimeout(lookupTimer);lookupRequest++;
     editing=item;results=[];$('#results').replaceChildren();$('#lookup').value=item?.lookup_title||item?.title||'';$('#add-type').value=item?.type||'movie';$('#add-type').disabled=!!item;if(!live)$('#quick-form').prepend($('#add-type'));
     $('#quick-form').hidden=!!item;$('#quick-titles').value='';$('#add-heading').textContent=item?'Find the right match':'Add a title';$('#lookup-status').textContent='';$('#add-error').textContent='';$('#add-dialog').showModal();
+    $('#match-queue').hidden=!matchQueue.length;
+    $('#match-queue-status').textContent=matchQueue.length?`${matchQueue.length} unmatched titles left. Choose a match or skip for now.`:'';
+    if(item&&live)void searchTitles();
   }
   async function metadata(payload) {
     if(!live)throw new Error('Poster lookup becomes available after connecting Supabase and a TMDB key. Quick add works in this preview.');
@@ -195,11 +200,12 @@
     render();
   });
   $('#help-button').onclick=()=>$('#help-dialog').showModal();
-  $('#add-button').onclick=()=>openAdd();
+  $('#add-button').onclick=()=>{matchQueue=[];openAdd();};
   $('#tonight-button').onclick=()=>{const panel=$('#tonight-panel');panel.hidden=!panel.hidden;if(!panel.hidden)draftTonight=[...(tonight||[])];$('#tonight-button').setAttribute('aria-expanded',String(!panel.hidden));render();};
   $('#attendees').onchange=()=>{draftTonight=Array.from($('#attendees').querySelectorAll('input:checked')).map(x=>x.value);render();};
   $('#remove-samples').onclick=()=>{data.votes=data.votes.filter(v=>!v.sample);persistDemo();render();};
   $('#attendees-all').onclick=()=>{draftTonight=[...names];render();};
+  $('#attendees-main').onclick=()=>{draftTonight=names.filter(person=>['Alex','Lyss','Julie','Blue','Ashe','Amanda','Emi'].includes(person));render();};
   $('#attendees-none').onclick=()=>{draftTonight=[];tonight=null;persistTonight();render();};
   document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{view=b.dataset.view;document.querySelectorAll('[data-view]').forEach(x=>x.setAttribute('aria-pressed',x===b));$('#tonight-panel').hidden=true;$('#tonight-button').setAttribute('aria-expanded','false');render();});
   $('#tonight-apply').onclick=()=>{tonight=draftTonight.length?[...draftTonight]:null;persistTonight();$('#tonight-panel').hidden=true;$('#tonight-button').setAttribute('aria-expanded','false');render();$('#tonight-button').focus();};
@@ -217,7 +223,7 @@
     catch(error){toast(error.message);}finally{button.disabled=false;}
   };
   $('#quick-form').onsubmit=async event=>{
-    event.preventDefault();const button=event.submitter||$('#quick-submit');const titles=[...new Set($('#quick-titles').value.split(/\r?\n/).map(t=>t.trim()).filter(Boolean))];
+    event.preventDefault();if(quickAdding||lookupSaving)return;const button=event.submitter||$('#quick-submit');const titles=[...new Set($('#quick-titles').value.split(/\r?\n/).map(t=>t.trim()).filter(Boolean))];
     if(!titles.length||titles.length>100||titles.some(t=>t.length>200)){ $('#add-error').textContent='Add 1–100 titles, each under 200 characters.';return;}
     const items=titles.map(title=>({title,type:$('#add-type').value}));
     const label=button.textContent;let matched=0,lookupFailed=false;
@@ -228,31 +234,59 @@
         try{const details=await metadata({action:'resolve',type:item.type,title:item.title});if(details){Object.assign(item,details);matched++;}}
         catch{lookupFailed=true;break;}
       }
-      button.textContent='Adding…';await mutate('add',{items});$('#add-dialog').close();
+      button.textContent='Adding…';await mutate('add',{items});$('#quick-titles').value='';
+      matchQueue=live&&!lookupFailed?items.filter(i=>!i.tmdb_id).map(i=>data.items.find(saved=>saved.type===i.type&&saved.title.toLowerCase()===i.title.toLowerCase()&&!saved.tmdb_id)).filter(Boolean):[];
+      if(matchQueue.length)openAdd(matchQueue[0]);
       toast(!live?'Added to the list. Existing titles were skipped.':lookupFailed?'Titles added. Lookup is unavailable; details can be matched later.':`${matched} of ${items.length} titles matched. Added to the list; existing titles were skipped.`);
     }catch(e){$('#add-error').textContent=e.message;}finally{button.disabled=false;button.textContent=label;quickAdding=false;}
   };
-  $('#lookup-form').onsubmit=async event=>{
-    event.preventDefault();const button=event.submitter||$('#lookup-form button[type="submit"]');button.disabled=true;$('#lookup-status').textContent='Looking for matches…';$('#results').replaceChildren();
-    try{results=await metadata({action:'search',query:$('#lookup').value,type:$('#add-type').value});$('#lookup-status').textContent=results.length?'Choose a match. Your original title and notes will be kept.':'No matches. Try another title, or quick add it below.';
-    $('#results').innerHTML=results.map((r,i)=>`<button class="result" data-result="${i}"><span><strong>${escape(r.title)}</strong><small>${escape(r.year||'')} · ${escape(r.overview?.slice(0,140)||'No description available')}</small></span></button>`).join('');}
-    catch(e){$('#lookup-status').textContent=e.message;}finally{button.disabled=false;}
-  };
+  async function searchTitles(){
+    clearTimeout(lookupTimer);
+    const request=++lookupRequest,query=$('#lookup').value.trim(),searchType=$('#add-type').value;
+    results=[];$('#results').replaceChildren();$('#add-error').textContent='';
+    if(!query){$('#lookup-status').textContent='';return;}
+    $('#lookup-status').textContent='Looking for matches…';
+    try{
+      const found=await metadata({action:'search',query,type:searchType});
+      if(request!==lookupRequest)return;
+      results=found;$('#lookup-status').textContent=results.length?'Choose a match below. You can keep adding titles here.':'No matches. Try another title, or add without a match below.';
+      $('#results').innerHTML=results.map((r,i)=>`<button type="button" class="result" data-result="${i}">${typeof r.poster_path==='string'&&/^\/[\w.-]+$/.test(r.poster_path)?`<img src="https://image.tmdb.org/t/p/w185${r.poster_path}" alt="" loading="lazy">`:'<span class="result-placeholder" aria-hidden="true">No poster</span>'}<span><strong>${escape(r.title)}</strong><small>${escape(r.year||'')} · ${escape(r.overview?.slice(0,140)||'No description available')}</small></span></button>`).join('');
+    }catch(e){if(request===lookupRequest)$('#lookup-status').textContent=e.message;}
+  }
+  $('#lookup-form').onsubmit=event=>{event.preventDefault();return searchTitles();};
+  $('#lookup').addEventListener('input',()=>{
+    clearTimeout(lookupTimer);lookupRequest++;results=[];$('#results').replaceChildren();
+    lookupTimer=setTimeout(()=>void searchTitles(),350);
+  });
+  $('#add-type').addEventListener('change',()=>{if(live)void searchTitles();});
+  function nextMatch(){
+    matchQueue.shift();
+    if(matchQueue.length)openAdd(matchQueue[0]);else{openAdd();toast('Matching finished. You can add more titles.');}
+  }
+  $('#skip-match').onclick=()=>{if(!lookupSaving)nextMatch();};
+  $('#add-dialog').addEventListener('close',()=>{clearTimeout(lookupTimer);lookupRequest++;matchQueue=[];});
   $('#results').onclick=async event=>{
-    const button=event.target.closest('[data-result]');if(!button)return;button.disabled=true;
-    try{const result=results[Number(button.dataset.result)],details=await metadata({action:'details',id:result.tmdb_id,type:$('#add-type').value});
-    if(editing)await mutate('details',{id:editing.id,details});else await mutate('add',{items:[{...details,title:result.title,type:$('#add-type').value}]});$('#add-dialog').close();toast(editing?'Details updated.':'Added to the list.');}
-    catch(e){$('#add-error').textContent=e.message;}finally{button.disabled=false;}
+    const button=event.target.closest('[data-result]');if(!button||button.disabled||lookupSaving||quickAdding)return;
+    const result=results[Number(button.dataset.result)],target=editing,addType=$('#add-type').value;
+    if(!result)return;
+    lookupSaving=true;$('#results').querySelectorAll('button').forEach(b=>b.disabled=true);button.disabled=true;
+    try{const details=await metadata({action:'details',id:result.tmdb_id,type:addType});
+      if(target)await mutate('details',{id:target.id,details});else await mutate('add',{items:[{...details,title:result.title,type:addType}]});
+      if(matchQueue.length)nextMatch();else if(target)$('#add-dialog').close();
+      else{lookupRequest++;$('#lookup').value='';results=[];$('#results').replaceChildren();$('#lookup-status').textContent=`Added ${result.title}. Search for another title.`;$('#lookup').focus();}
+      toast(target?'Details updated.':'Added to the list.');
+    }catch(e){$('#add-error').textContent=e.message;}finally{lookupSaving=false;button.disabled=false;$('#results').querySelectorAll('button').forEach(b=>b.disabled=false);}
   };
 
   function addedOrder(item){return Date.parse(item.created_at)||window.WATCH_SEED.findIndex(i=>i.id===item.id)+1;}
   function dateLabel(item){return item.created_at?'Added '+new Date(item.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}):(window.WATCH_SEED.some(i=>i.id===item.id)?'Original list · #'+(window.WATCH_SEED.findIndex(i=>i.id===item.id)+1):'Added before date tracking');}
   function displayTitle(item){return item.title==='The Princess Diaries 2: Royal Engagement'?'The Princess Diaries':item.title==='Glass Onion: A Knives Out Mystery'?'Knives Out':item.title;}
-  function films(item){return window.WATCH_SERIES[item.title]||item.films||[];}
+  function films(item){return item.type==='series'?(window.WATCH_SERIES[item.title]||item.films||[]):[];}
+  function nextFilmLabel(item){const next=films(item).find(f=>!done(item,f,'Group'));return next?'Next: '+filmKey(next):'All films watched by the group';}
   function filmKey(f){return f[0]+' ('+f[1]+')';}
   function done(item,f,person){return (data.progress||[]).some(p=>p.item_id===item.id&&p.film===filmKey(f)&&p.name===person);}
   function completed(item,person){return films(item).filter(f=>done(item,f,person)).length;}
-  function openDetail(item){detailId=item.id;renderDetail();if(!$('#detail-dialog').open)$('#detail-dialog').showModal();if(item.type==='tv'&&item.tmdb_id&&live)void loadTv(item);}
+  function openDetail(item){filmFilter='all';detailId=item.id;renderDetail();if(!$('#detail-dialog').open)$('#detail-dialog').showModal();if(item.type==='tv'&&item.tmdb_id&&live)void loadTv(item);}
   function episodeKey(item,season,episode){return `tv:${item.tmdb_id}:${season}:${episode}`;}
   function episodeDone(item,season,episode,person){return (data.progress||[]).some(p=>p.item_id===item.id&&p.name===person&&p.film===episodeKey(item,season,episode));}
   function seasonCount(item,season,person){return (data.progress||[]).filter(p=>p.item_id===item.id&&p.name===person&&p.film.startsWith(`tv:${item.tmdb_id}:${season}:`)).length;}
@@ -295,11 +329,12 @@
   function renderDetail(){
     const item=data.items.find(i=>i.id===detailId);if(!item)return;
     const list=films(item);
+    const shown=list.map((film,index)=>({film,index})).filter(({film})=>filmFilter==='all'||(filmFilter==='watched')===done(item,film,'Group'));
     $('#detail-content').innerHTML='<p class="eyebrow">'+types[item.type]+'</p><h2>'+escape(displayTitle(item))+'</h2><p class="detail-meta">'+dateLabel(item)+'</p>'+
       (item.overview?'<p>'+escape(item.overview)+'</p>':'')+
       (live&&!item.tmdb_id?'<p><button class="secondary" data-match>Find a match</button></p>':'')+
       (item.imdb_id?'<a href="https://www.imdb.com/title/'+escape(item.imdb_id)+'/" target="_blank" rel="noopener">View on IMDb ↗</a>':'')+tvTracker(item)+
-      (list.length?'<h3>Series progress</h3><p class="hint">Release order'+(item.title==='The Muppets'?' · Theatrical films':'')+'. Group and personal progress are tracked separately.</p><div class="progress-heading"><span>Film</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+list.map((f,index)=>'<div class="film-row"><span><b>'+escape(f[0])+'</b><small>'+f[1]+'</small></span>'+['Group',name].map(person=>'<label><span class="sr-only">'+escape(f[0])+' watched by '+escape(person||'you')+'</span><input type="checkbox" data-film="'+index+'" data-person="'+escape(person)+'" '+(done(item,f,person)?'checked':'')+' '+(!name?'disabled':'')+'></label>').join('')+'</div>').join(''):'')+
+      (list.length?'<h3>Series progress</h3><p class="hint">'+escape(nextFilmLabel(item))+'</p><div class="film-filters" role="group" aria-label="Film progress filter">'+['all','remaining','watched'].map(value=>'<button class="secondary" data-film-filter="'+value+'" aria-pressed="'+(filmFilter===value)+'">'+({all:'All films',remaining:'Remaining',watched:'Watched'})[value]+'</button>').join('')+'</div><p class="hint">Release order'+(item.title==='The Muppets'?' · Theatrical films':'')+'. Group and personal progress are tracked separately.</p><div class="progress-heading"><span>Film</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+shown.map(({film:f,index})=>'<div class="film-row"><span><b>'+escape(f[0])+'</b><small>'+f[1]+'</small><a class="film-info" href="https://www.themoviedb.org/search/movie?query='+encodeURIComponent(filmKey(f))+'" target="_blank" rel="noopener">Film details</a></span>'+['Group',name].map(person=>'<label><span class="sr-only">'+escape(f[0])+' watched by '+escape(person||'you')+'</span><input type="checkbox" data-film="'+index+'" data-person="'+escape(person)+'" '+(done(item,f,person)?'checked':'')+' '+(!name?'disabled':'')+'></label>').join('')+'</div>').join(''):'')+
       '<div class="history-actions"><h3>Group watch history</h3><p class="hint">Move this '+(list.length?'series':'title')+' between the watch list and Watched.</p><button class="secondary" data-archive>'+ (item.watched?'Move back to watch list':'Mark group watched')+'</button></div>';
   }
   $('#detail-content').onchange=async event=>{
@@ -320,6 +355,7 @@
     try{await mutate('progress',{id:item.id,film:filmKey(films(item)[Number(input.dataset.film)]),name:input.dataset.person,watched:input.checked});renderDetail();}catch(e){input.checked=!input.checked;toast(e.message);}finally{input.disabled=false;}
   };
   $('#detail-content').onclick=async event=>{
+    const filter=event.target.closest('[data-film-filter]');if(filter){filmFilter=filter.dataset.filmFilter;renderDetail();return;}
     if(event.target.closest('[data-tv-retry]')){void loadTv(data.items.find(i=>i.id===detailId));return;}
     if(event.target.closest('[data-match]')){if(!requireName())return;const item=data.items.find(i=>i.id===detailId);$('#detail-dialog').close();openAdd(item);return;}
     const button=event.target.closest('[data-archive]');if(!button||!requireName())return;

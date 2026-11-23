@@ -61,7 +61,7 @@ Deno.serve(async request => {
     if(input.action==='search') {
       if(typeof input.query!=='string'||!input.query.trim()||input.query.length>200)return json({error:'Enter a title under 200 characters.'},400);
       const response=await tmdb('/search/'+resource+'?include_adult=false&query='+encodeURIComponent(input.query.trim()));
-      return json(response.results.slice(0,8).map((r:Record<string,unknown>)=>({tmdb_id:r.id,title:r.title||r.name,year:String(r.release_date||r.first_air_date||'').slice(0,4),overview:r.overview||''})));
+      return json(response.results.slice(0,8).map((r:Record<string,unknown>)=>({tmdb_id:r.id,title:r.title||r.name,poster_path:r.poster_path||null,year:String(r.release_date||r.first_air_date||'').slice(0,4),overview:r.overview||''})));
     }
     if(input.action==='details') {
       if(!Number.isSafeInteger(input.id)||input.id<=0)return json({error:'Invalid title ID.'},400);
