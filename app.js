@@ -164,7 +164,7 @@
       return {id:'collection:'+group.id,title:group.title,type:'series',members,
         watched:members.every(i=>i.watched),poster_path:members.find(i=>i.poster_path)?.poster_path,
         created_at:members.map(i=>i.created_at).filter(Boolean).sort().at(-1),
-        overview:'Your Mary-Kate and Ashley movies, in release order. Open a film to see its details and responses.'};
+        overview:''};
     }).filter(Boolean);
   }
   function findItem(id){return data.items.find(i=>i.id===id)||collections.find(i=>i.id===id);}
