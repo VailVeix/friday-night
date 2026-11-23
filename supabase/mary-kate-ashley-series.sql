@@ -41,6 +41,9 @@ declare
 begin
   select id into parent_id from watch_private.items
     where type='series' and lower(title)=lower('Mary-Kate & Ashley');
+  if parent_id is not null then
+    update watch_private.items set overview='Mary-Kate and Ashley movies — curated by Alex.' where id=parent_id;
+  end if;
   if not exists(select 1 from olsen_members) then
     if parent_id is not null then return; end if;
     raise exception 'No matching Mary-Kate & Ashley movies found. No data changed.';
@@ -50,7 +53,7 @@ begin
     insert into watch_private.items(title,type,poster_path,overview,films,created_at)
     values('Mary-Kate & Ashley','series',
       (select poster_path from olsen_members where poster_path is not null order by position limit 1),
-      'Mary-Kate and Ashley movies, in release order.',
+      'Mary-Kate and Ashley movies — curated by Alex.',
       '[]'::jsonb,(select min(created_at) from olsen_members))
     returning id into parent_id;
   end if;
