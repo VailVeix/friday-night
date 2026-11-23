@@ -38,14 +38,18 @@ The live deployment has the metadata function and TMDB token connected. Line-by-
 
 ## Using the list
 
+- **List / Grid** changes the library layout. Grid uses square poster cards; open a card for details, responses, and watch history. **Show response initials** hides or shows the roster squares in either layout. In compact grid cards, scroll the initials sideways to see the rest of a large roster. Both display preferences are remembered in this browser.
+- The **Mary-Kate & Ashley** collection automatically groups matching films already on the shared list by title and year, in release order. It appears under **Everything** and **Film series**. Open it to choose an individual film, filter watched/remaining movies, or update group and personal viewing status. Votes and history stay on the original films. **Films** and **My history** continue to show the individual records. Tonight eligibility is checked per film. This grouping requires only a frontend deployment; no SQL or Edge Function update is needed. The reviewed matching rules are in `window.WATCH_COLLECTIONS` in `series.js`.
 - The library uses larger posters and touch controls. Open **View films** on a film series to see its individual movies, filter **All films / Remaining / Watched**, and track group or personal progress. The next group film appears on the series card. Search also matches movies inside a series. Series with group film progress appear in **Watched** even while the series remains on the watch list.
 - In **Add title**, choose **Film**, **Film series**, or **TV show**. Shared title search runs as you type and shows poster thumbnails. Selecting a result leaves the dialog ready for another addition. Pasting one title per line still resolves exact matches automatically; after saving, a matching queue opens for unresolved titles, with suggestions and a **Skip this title** option. Skipped titles remain saved for later matching.
 - Search-result posters require redeploying `supabase/functions/metadata/index.ts`; the frontend still works with the older function but shows a placeholder for those thumbnails. No database migration is needed for these UI changes.
 
-- **Absolutely**: do not watch without me. **Yes**: I want to watch but can miss it. **IDC**: I will watch; either way is fine. **Nope !**: I do not want to watch.
-- All people on the shared roster appear normally; tonight shows only the selected people. Grey means unanswered. After responding, use the pencil icon to edit. Clicking the selected response again clears it.
+- **★ Wait for me**: keep this off tonight's list when I am absent. **Yes**: I want to watch but can miss it. **Either way**: I will watch; either choice works for me. **Nope !**: hide this title when I am joining. Existing saved response values are unchanged.
+- All people on the shared roster appear normally; tonight shows only the selected people. Grey means unanswered. After responding, **Your pick: Yes · Edit** (with your actual response) shows the saved choice and how to change it. Clicking the selected response again clears it.
 - Sorting remembers the last choice in this browser. With no saved choice, it defaults to date added, oldest first. Imported entries retain spreadsheet order; new additions receive timestamps.
-- **Who’s here tonight?** edits an attendee selection. **Apply** saves it in this browser and collapses the panel. The selection survives refreshes and reopening the site. A selected person's Nope ! hides a title. Other responses and unanswered titles remain eligible. Titles with an absent friend's Absolutely response are hidden. **Clear selection** immediately removes the saved selection and restores the unfiltered list.
+- **Who’s here tonight?**, beside **+ Add title**, edits an attendee selection. **Apply** saves it in this browser, collapses the panel, and sorts eligible titles by **Group interest**. You can still choose another sort; that choice is remembered. The attendee selection survives refreshes and reopening the site. A selected person's Nope ! hides a title. Other responses and unanswered titles remain eligible. Titles with an absent friend's Wait for me response are hidden. **Clear selection** immediately removes the saved selection and restores the unfiltered list.
+- On phones, Search and **Filters** share one row below the three library tabs and the attendance/add buttons. Filters contains title type, sort, Refresh, layout, and response initials. Desktop list cards show a one-line synopsis when metadata is available. Both the poster and title open details on all screen sizes.
+- Group **Mark watched** and group film/episode checkboxes record a server timestamp, the calendar date in the marking browser's time zone, the applied Tonight attendees, and the selected name that recorded it. Details show the saved date and people. Changing the filter later leaves that snapshot intact; un-applied attendee drafts are ignored. No selection records unknown attendance, rather than assuming the whole roster attended. Attendees are also marked personally seen for a whole-title watch; a film/episode checkbox adds only that film/episode to their personal progress. Existing personal history is preserved, and absent people are untouched. Undo keeps their personal seen/progress and clears only the group watch record; checking again records a new date and attendance snapshot. Repeated true saves preserve the original snapshot.
 - **Mark as seen** under a title records personal viewing history for the selected name. Click **Seen** again to undo. It does not change interest responses, tonight eligibility, series checklists, or the group Watched list. This status is shared across devices and survives group archive/restore.
 - **My history** shows the selected person's seen titles, including titles still on the watch list and those in the group Watched archive. Switching names updates the history. Search, type, and sort still work; tonight's attendee filter does not hide personal history. Click **Seen** to remove a title from your history.
 - Open a title for details, group watch history, and series checklists. Group and personal series progress are separate. Watched titles have their own view.
@@ -66,6 +70,8 @@ Verification includes `tests/admin-database.test.sql` inside a rolled-back trans
 
 ## Database maintenance
 
+For group watch dates and attendees, run `supabase/watch-history-migration.sql` in **Supabase → SQL Editor**, after the admin and personal-seen migrations. Run it for both existing and new installations, before publishing the corresponding frontend. It is safe to rerun and preserves existing titles, votes and progress. If you ran an earlier copy, rerun the updated file to enable automatic personal seen/progress for attendees. Historical watch dates and attendees remain unknown. The new frontend refuses group watch saves against an older backend so it cannot silently discard the snapshot. This does not require an Edge Function redeployment.
+
 For a fresh installation, `schema.sql` includes series progress and IDC. Follow it with `admin-migration.sql` and `personal-seen-migration.sql`; the older progress and IDC migrations are unnecessary.
 
 Existing older installations can run `progress-migration.sql` and `idc-migration.sql`. Rerunning `seed.sql` updates reviewed catalog fields by stable ID without resetting votes or watch status. It can overwrite edited imported title names; inspect before running.
@@ -81,10 +87,13 @@ node --check app.js
 node --check seed.js
 node --check series.js
 node --test tests/*.test.cjs
+node tests/watch-history-db-check.cjs
 node tests/browser-check.cjs "C:\Program Files\Google\Chrome\Application\chrome.exe"
 ```
 
 The browser check uses a separate temporary server and Chrome profile, saves screenshots in ignored `.qa/`, and exercises the current interface, fake data removal, attendance rules, editing votes, IDC persistence, watch history, series progress, and the help popup.
+
+The watch-history database check uses Docker and a local `postgres:17` image. It creates a disposable container with no network or exposed ports, runs all five database suites plus legacy-data and repeat-migration checks, and removes the container afterward. It never connects to the shared Supabase project.
 
 `tests/database.test.sql` verifies the schema and API in a disposable PostgreSQL database. It expects the test-only code `friday-night-test-code-only`, the Supabase-like `anon` and `authenticated` roles, and the schema/seed already loaded. Never run that test against a real shared project: it writes test records.
 

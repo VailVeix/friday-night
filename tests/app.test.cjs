@@ -90,6 +90,149 @@ test('search and category filters compose',()=>{
   h.tabs.find(t=>t.dataset.type==='tv').onclick();assert.equal(h.get('#count').textContent,1);
 });
 
+test('applying attendees ranks eligible titles by interest and allows a saved sort override',async()=>{
+  const demo={items:[
+    {id:'less-interest',title:'A film',type:'movie',created_at:'2020-01-01'},
+    {id:'more-interest',title:'B film',type:'movie',created_at:'2020-01-02'},
+    {id:'absent-pick',title:'C film',type:'movie',created_at:'2020-01-03'}
+  ],votes:[{item_id:'less-interest',name:'Alex',interest:'interested'},{item_id:'more-interest',name:'Alex',interest:'hold'},{item_id:'more-interest',name:'Lyss',interest:'interested'},{item_id:'absent-pick',name:'Julie',interest:'hold'}],people:['Alex','Lyss','Julie']};
+  const h=harness({},undefined,demo);await h.join('Alex');
+  h.get('#attendees').querySelectorAll=()=>[{value:'Alex'},{value:'Lyss'}];h.get('#attendees').onchange();h.get('#tonight-apply').onclick();
+  assert.equal(h.get('#sort').value,'interest');assert.equal(JSON.parse(h.localStorage.getItem('friday-sort')),'interest');
+  assert.ok(h.get('#grid').innerHTML.indexOf('data-id="more-interest"')<h.get('#grid').innerHTML.indexOf('data-id="less-interest"'));
+  assert.ok(!h.get('#grid').innerHTML.includes('data-id="absent-pick"'));
+  h.get('#sort').value='title';h.get('#sort').listeners.change();
+  assert.ok(h.get('#grid').innerHTML.indexOf('data-id="less-interest"')<h.get('#grid').innerHTML.indexOf('data-id="more-interest"'));
+  const reload=harness({},undefined,demo,undefined,{local:{'friday-tonight':['Alex','Lyss'],'friday-sort':'title'}});
+  assert.equal(reload.get('#sort').value,'title','A new visit retains the user override');
+});
+
+test('vote labels explain attendance and saved picks have a text Edit control',async()=>{
+  const h=harness();await h.join('Alex');const id=h.context.window.WATCH_SEED[0].id;
+  assert.match(h.get('#grid').innerHTML,/★ Wait for me/);assert.match(h.get('#grid').innerHTML,/Either way/);
+  await h.vote(id,'interested');assert.match(h.get('#grid').innerHTML,/Your pick: Yes/);
+  assert.match(h.get('#grid').innerHTML,/data-edit-vote[^>]*>Edit<\/button>/);
+  await h.vote(id,'hold');assert.match(h.get('#grid').innerHTML,/Your pick: ★ Wait for me/);
+  assert.match(h.get('#grid').innerHTML,/off tonight.*list when I.*absent/);
+  assert.equal(h.data().votes.find(v=>v.item_id===id).interest,'hold','Renaming preserves the stored response value');
+});
+
+test('Filters stays open while changing categories and closes on toggle',()=>{
+  const h=harness();assert.equal(h.get('#filters-toggle')['aria-expanded'],'false');
+  h.get('#filters-toggle').onclick();h.tabs.find(t=>t.dataset.type==='movie').onclick();
+  assert.equal(h.get('#filters-panel').className,'filters-panel is-open');assert.equal(h.get('#filters-toggle').textContent,'Filters · Films');
+  h.get('#filters-toggle').onclick();assert.equal(h.get('#filters-panel').className,'filters-panel');
+  assert.equal(h.get('#filters-toggle')['aria-expanded'],'false');
+});
+
+test('layout and response initials preferences persist across filters and visits',()=>{
+  const h=harness();assert.equal(h.get('#grid').className,'grid');
+  h.get('#layout-grid').onclick();h.get('#show-initials').checked=false;h.get('#show-initials').listeners.change();
+  h.tabs.find(t=>t.dataset.type==='series').onclick();
+  assert.equal(h.get('#grid').className,'grid card-grid hide-initials');
+  assert.equal(h.get('#layout-grid')['aria-pressed'],'true');
+  const reload=harness({},undefined,null,undefined,{local:{'friday-layout':JSON.parse(h.localStorage.getItem('friday-layout')),'friday-show-initials':JSON.parse(h.localStorage.getItem('friday-show-initials'))}});
+  assert.equal(reload.get('#grid').className,'grid card-grid hide-initials');
+  reload.get('#layout-list').onclick();assert.equal(reload.get('#grid').className,'grid hide-initials');
+  reload.get('#show-initials').checked=true;reload.get('#show-initials').listeners.change();assert.equal(reload.get('#grid').className,'grid');
+});
+
+const olsenDemo=()=>({items:[
+  {id:'twins-1995',title:'It Takes Two',type:'movie',year:'1995',watched:false},
+  {id:'paris',title:'Passport to Paris',type:'movie',year:'1999',watched:true},
+  {id:'other-version',title:'It Takes Two',type:'movie',year:'1988',watched:false}
+],votes:[{item_id:'twins-1995',name:'Alex',interest:'hold'}],seen:[{item_id:'paris',name:'Alex'}],people:['Alex']});
+const openCard=(h,id)=>h.get('#grid').onclick({target:{closest:()=>({closest:()=>({dataset:{id}}),hasAttribute:attribute=>attribute==='data-open'})}});
+const archiveDetail=h=>h.get('#detail-content').onclick({target:{closest:selector=>selector==='[data-archive]'?{disabled:false}:null}});
+
+test('group watches snapshot applied attendees and show the saved date and people',async()=>{
+  const h=harness({},undefined,{items:[{id:'watch-date',title:'Watch date test',type:'movie',watched:false}],votes:[],seen:[{item_id:'watch-date',name:'Lyss',created_at:'2020-01-01T00:00:00Z'}],people:[]});
+  await h.join('Alex');h.get('#attendees-main').onclick();h.get('#tonight-apply').onclick();
+  h.get('#attendees-all').onclick(); // An un-applied draft must not change recorded attendance.
+  await openCard(h,'watch-date');await archiveDetail(h);
+  let item=h.data().items[0];
+  assert.deepEqual(item.watched_attendees,['Alex','Lyss','Julie','Blue','Ashe','Amanda','Emi']);
+  assert.equal(item.watched_by,'Alex');assert.match(item.watched_on,/^\d{4}-\d{2}-\d{2}$/);assert.ok(Date.parse(item.watched_at));
+  assert.deepEqual(h.data().seen.map(s=>s.name).sort(),['Alex','Lyss','Julie','Blue','Ashe','Amanda','Emi'].sort(),'Every attendee is personally seen and absent people are excluded');
+  assert.equal(h.data().seen.find(s=>s.name==='Lyss').created_at,'2020-01-01T00:00:00Z','Existing personal history is preserved');
+  h.get('#attendees-none').onclick();
+  h.views.find(v=>v.dataset.view==='watched').onclick();await openCard(h,'watch-date');
+  assert.match(h.get('#detail-content').innerHTML,/With Alex, Lyss, Julie, Blue, Ashe, Amanda, Emi/);
+  assert.match(h.get('#detail-content').innerHTML,/Marked by Alex/);
+  await archiveDetail(h);item=h.data().items[0];assert.equal(item.watched,false);assert.equal(item.watched_at,null);assert.equal(item.watched_attendees,null);
+  assert.equal(h.data().seen.length,7,'Restoring the group list keeps personal viewing history');
+  h.views.find(v=>v.dataset.view==='browse').onclick();await openCard(h,'watch-date');await archiveDetail(h);
+  assert.equal(h.data().items[0].watched_attendees,null,'No attendee selection must not imply everybody watched');
+});
+
+test('group checklist dates and attendee snapshots survive duplicate saves',async()=>{
+  const h=harness();await h.join('Alex');const series=h.data().items.find(i=>i.title==='Alien');
+  h.get('#attendees-main').onclick();h.get('#tonight-apply').onclick();await openCard(h,series.id);
+  const toggle=async(person,checked)=>{
+    const input={dataset:{film:'0',person},checked,disabled:false};
+    await h.get('#detail-content').onchange({target:{matches:()=>false,closest:selector=>selector==='[data-film]'?input:null}});
+  };
+  await toggle('Group',true);const saved=h.data().progress.find(p=>p.name==='Group');
+  assert.equal(saved.watched_attendees.length,7);assert.ok(saved.watched_at);assert.match(h.get('#detail-content').innerHTML,/With Alex, Lyss/);
+  assert.equal(h.data().progress.filter(p=>p.name!=='Group').length,7,'Attendees receive personal film progress');
+  assert.ok(!h.data().seen?.length,'A single film does not mark the whole series seen');
+  h.get('#attendees-none').onclick();await toggle('Group',true);
+  assert.deepEqual(h.data().progress.find(p=>p.name==='Group'),saved,'A duplicate check must retain the original date and attendees');
+  await toggle('Alex',true);assert.equal(h.data().progress.find(p=>p.name==='Alex').watched_at,undefined,'Personal progress does not record group attendance');
+  await toggle('Group',false);assert.ok(!h.data().progress.some(p=>p.name==='Group'));assert.ok(h.data().progress.some(p=>p.name==='Alex'));
+});
+
+test('live group watches send the applied snapshot and reject an unmigrated backend',async()=>{
+  for(const migrated of [true,false]){
+    const writes=[];
+    const h=harness({supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'public'},async(url,options)=>{
+      const body=JSON.parse(options.body);
+      if(body.p_action==='watched')writes.push(body.p_payload);
+      return {ok:true,json:async()=>body.p_action==='list'?{watch_details_version:migrated?2:undefined,items:[{id:'shared-watch',title:'Shared watch',type:'movie',tmdb_id:1,watched:false}],votes:[],people:[]}:true};
+    });
+    await h.join('Alex','test-code');h.get('#attendees-main').onclick();h.get('#tonight-apply').onclick();await openCard(h,'shared-watch');await archiveDetail(h);
+    if(migrated){assert.equal(writes[0].attendees.length,7);assert.equal(writes[0].recorded_by,'Alex');assert.equal(typeof writes[0].time_zone,'string');assert.equal(writes[0].watched_at,undefined,'The server supplies the timestamp');}
+    else{assert.equal(writes.length,0);assert.match(h.get('#toast').textContent,/watch-history database update/);}
+  }
+});
+
+test('Mary-Kate and Ashley collection preserves films and avoids other title versions',async()=>{
+  const h=harness({},undefined,olsenDemo());await h.join('Alex');
+  assert.equal(h.get('#count').textContent,2);assert.match(h.get('#grid').innerHTML,/Mary-Kate &amp; Ashley/);
+  assert.ok(!h.get('#grid').innerHTML.includes('data-id="twins-1995"'));
+  assert.ok(h.get('#grid').innerHTML.includes('data-id="other-version"'));
+  assert.equal(h.data().items.length,3);assert.deepEqual(h.data().votes,olsenDemo().votes);
+  await openCard(h,'collection:mary-kate-ashley');
+  assert.match(h.get('#detail-content').innerHTML,/data-member-open="twins-1995"/);
+  assert.match(h.get('#detail-content').innerHTML,/data-member-open="paris"/);
+  h.get('#search').value='Passport';h.get('#search').listeners.input();assert.equal(h.get('#count').textContent,0,'Watched member does not make a search match in the watch list');
+  h.views.find(v=>v.dataset.view==='watched').onclick();assert.match(h.get('#grid').innerHTML,/Mary-Kate &amp; Ashley/);
+  h.views.find(v=>v.dataset.view==='personal').onclick();assert.match(h.get('#grid').innerHTML,/data-id="paris"/);
+  assert.ok(!h.get('#grid').innerHTML.includes('collection:mary-kate-ashley'));
+});
+
+test('collection checklist saves progress to the original film and keeps responses intact',async()=>{
+  const h=harness({},undefined,olsenDemo());await h.join('Alex');await openCard(h,'collection:mary-kate-ashley');
+  const toggle=async(person,checked)=>{
+    const input={dataset:{memberId:'twins-1995',person},checked,disabled:false};
+    await h.get('#detail-content').onchange({target:{closest:s=>s==='[data-member-id]'?input:null}});
+  };
+  await toggle('Group',true);assert.equal(h.data().items.find(i=>i.id==='twins-1995').watched,true);
+  await toggle('Alex',true);assert.ok(h.data().seen.some(s=>s.item_id==='twins-1995'&&s.name==='Alex'));
+  await toggle('Group',false);assert.equal(h.data().items.find(i=>i.id==='twins-1995').watched,false);
+  assert.deepEqual(h.data().votes,olsenDemo().votes);assert.equal(h.data().items.length,3);
+});
+
+test('tonight eligibility is checked per collection film',async()=>{
+  const demo=olsenDemo();demo.items[1].watched=false;
+  const h=harness({},undefined,demo);await h.join('Lyss');
+  h.get('#attendees').querySelectorAll=()=>[{value:'Lyss'}];h.get('#attendees').onchange();h.get('#tonight-apply').onclick();
+  h.get('#search').value='It Takes Two';h.get('#search').listeners.input();
+  assert.equal(h.get('#count').textContent,1);assert.ok(!h.get('#grid').innerHTML.includes('collection:mary-kate-ashley'));
+  h.get('#search').value='Mary-Kate';h.get('#search').listeners.input();
+  assert.equal(h.get('#count').textContent,1);assert.match(h.get('#grid').innerHTML,/Next: Passport to Paris/);
+});
+
 test('individual films are searchable and partial series progress appears in Watched',async()=>{
   const h=harness();await h.join('Alex');
   h.get('#search').value='Prometheus';h.get('#search').listeners.input();
@@ -159,7 +302,7 @@ test('new members can vote and attendance applies Nope and Absolutely rules',asy
   select(['Wils','Michelle']);assert.equal(h.get('#count').textContent,46);
   await h.vote(id,'pass');assert.equal(h.get('#count').textContent,45);
   select(['Wils']);assert.equal(h.get('#count').textContent,46);
-  assert.ok(h.get('#grid').innerHTML.includes('aria-label="Wils: Absolutely'));
+  assert.ok(h.get('#grid').innerHTML.includes('aria-label="Wils: \u2605 Wait for me'));
   assert.ok(!h.get('#grid').innerHTML.includes('aria-label="Michelle:'));
 });
 test('live requests send group code in POST body and never put it in a URL',async()=>{

@@ -7,7 +7,7 @@ const assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..');
 const qa=path.join(root,'.qa');fs.mkdirSync(qa,{recursive:true});
 const people=['Alex','Michelle'];
-const data={items:[{id:'tv-test',title:'A test show',type:'tv',tmdb_id:42,year:'2020',created_at:'2020-01-01',watched:false}],people,votes:[{item_id:'tv-test',name:'Alex',interest:'hold'}],progress:[],seen:[]};
+const data={watch_details_version:2,items:[{id:'tv-test',title:'A test show',type:'tv',tmdb_id:42,year:'2020',created_at:'2020-01-01',watched:false}],people,votes:[{item_id:'tv-test',name:'Alex',interest:'hold'}],progress:[],seen:[]};
 let failSave=false,failSeason=false,slowSeason=false;
 const server=http.createServer(async(req,res)=>{
   const requested=decodeURIComponent(req.url.split('?')[0]);

@@ -294,3 +294,25 @@ window.WATCH_SERIES = {
   ]
 };
 window.WATCH_SERIES["Despicable Me"].push(["Minions & Monsters",2026]);
+
+// Group only films already on the shared list. Title and year distinguish remakes.
+// Filmography: https://www.rottentomatoes.com/celebrity/marykate_olsen
+window.WATCH_COLLECTIONS = [{
+  id:'mary-kate-ashley', title:'Mary-Kate & Ashley',
+  films:[
+    ["To Grandmother's House We Go",1992],
+    ['Double, Double, Toil and Trouble',1993],
+    ['How the West Was Fun',1994],
+    ['It Takes Two',1995],
+    ['Billboard Dad',1998],
+    ['Passport to Paris',1999],
+    ['Switching Goals',1999],
+    ['Our Lips Are Sealed',2000],
+    ['Winning London',2001],
+    ['Holiday in the Sun',2001],
+    ['Getting There',2002],
+    ['When in Rome',2002],
+    ['The Challenge',2003],
+    ['New York Minute',2004]
+  ]
+}];

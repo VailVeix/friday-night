@@ -5,11 +5,14 @@
   const config = window.WATCH_CONFIG || {};
   const live = !!(config.supabaseUrl && config.supabasePublishableKey);
   const types = {movie:'FILM',series:'FILM SERIES',tv:'TV SHOW'};
-  const voteLabels = {hold:'Absolutely',interested:'Yes',idc:'IDC',pass:'Nope !'};
+  const voteLabels = {hold:'★ Wait for me',interested:'Yes',idc:'Either way',pass:'Nope !'};
+  const voteHints = {hold:'Keep this off tonight’s list when I’m absent.',interested:'I want to watch, but the group can watch without me.',idc:'I’m happy to watch; either choice works for me.',pass:'Hide this title when I’m joining tonight.'};
   const escape = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const read = (storage, key, fallback) => {try {return JSON.parse(storage.getItem(key)) ?? fallback;} catch {return fallback;}};
   const savedSort=read(localStorage,'friday-sort','oldest');
   $('#sort').value=['oldest','newest','title','interest','unanswered'].includes(savedSort)?savedSort:'oldest';
+  let layout=read(localStorage,'friday-layout','list')==='grid'?'grid':'list';
+  let showInitials=read(localStorage,'friday-show-initials',true)!==false;
   let name = read(localStorage, 'friday-name', '');
   let names = ["Alex","Lyss","Julie","Blue","Ashe","Amanda","Emi","Wils","Michelle"];
   if(!live&&!names.includes(name))name='';
@@ -19,11 +22,12 @@
   let data = {items:[],votes:[],people:[]}, type = 'all', tonight = savedAttendees.length?savedAttendees:null, editing = null, results = [], syncing = false;
   let draftTonight=[...savedAttendees];
   let editingVote=null;
-  let view='browse', detailId=null, autoRunning=false, quickAdding=false;
+  let view='browse', detailId=null, autoRunning=false, quickAdding=false, filtersOpen=false;
   const attempted=new Set();
   const tvShows=new Map();
   let toastTimer;
   let lookupTimer, lookupRequest=0, matchQueue=[], filmFilter='all', lookupSaving=false;
+  let collections=[];
   const toast = message => {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);};
   function persistDemo() {localStorage.setItem('friday-demo',JSON.stringify(data));}
   function rememberCode(){if(!live||!code)return;try{localStorage.setItem('friday-code',JSON.stringify(code));sessionStorage.removeItem('friday-code');}catch{try{sessionStorage.setItem('friday-code',JSON.stringify(code));}catch{}}}
@@ -96,6 +100,11 @@
     void autoDetails();
   }
   async function mutate(action,payload) {
+    const groupWatch=action==='watched'||(action==='progress'&&payload.name==='Group');
+    if(groupWatch&&payload.watched){
+      if(live&&data.watch_details_version!==2)throw new Error('The host needs to run the updated watch-history database update before recording group watches.');
+      payload={...payload,attendees:tonight?[...tonight]:null,recorded_by:name||null,time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'};
+    }
     if(live) {
       if(syncing)throw new Error('Please wait for the current save to finish.');
       syncing=true;
@@ -104,34 +113,102 @@
     }
     if(action==='add')for(const item of payload.items){if(!data.items.some(x=>x.type===item.type&&[x.title,x.original_title].some(t=>t?.toLowerCase()===item.title.toLowerCase())))data.items.push({...item,id:crypto.randomUUID(),watched:false,created_at:new Date().toISOString()});}
     if(action==='vote') {data.votes=data.votes.filter(v=>!(v.item_id===payload.id&&v.name===name));if(payload.interest)data.votes.push({item_id:payload.id,name,interest:payload.interest});}
-    if(action==='watched')data.items.find(i=>i.id===payload.id).watched=payload.watched;
-    if(action==='seen'){data.seen ||= [];data.seen=data.seen.filter(s=>!(s.item_id===payload.id&&s.name===payload.name));if(payload.seen)data.seen.push({item_id:payload.id,name:payload.name});}
-    if(action==='progress'){data.progress ||= [];data.progress=data.progress.filter(p=>!(p.item_id===payload.id&&p.film===payload.film&&p.name===payload.name));if(payload.watched)data.progress.push({item_id:payload.id,film:payload.film,name:payload.name});}
+    if(action==='watched'){
+      const item=data.items.find(i=>i.id===payload.id);
+      if(payload.watched&&!item.watched){
+        Object.assign(item,demoWatchDetails(payload));
+        data.seen ||= [];
+        for(const person of item.watched_attendees||[])if(!data.seen.some(s=>s.item_id===item.id&&s.name===person))data.seen.push({item_id:item.id,name:person,created_at:item.watched_at});
+      }
+      if(!payload.watched)Object.assign(item,{watched_at:null,watched_on:null,watched_attendees:null,watched_by:null});
+      item.watched=payload.watched;
+    }
+    if(action==='seen'){data.seen ||= [];if(!payload.seen)data.seen=data.seen.filter(s=>!(s.item_id===payload.id&&s.name===payload.name));else if(!data.seen.some(s=>s.item_id===payload.id&&s.name===payload.name))data.seen.push({item_id:payload.id,name:payload.name});}
+    if(action==='progress'){
+      data.progress ||= [];
+      const existing=data.progress.find(p=>p.item_id===payload.id&&p.film===payload.film&&p.name===payload.name);
+      if(!payload.watched)data.progress=data.progress.filter(p=>p!==existing);
+      else if(!existing){
+        data.progress.push({item_id:payload.id,film:payload.film,name:payload.name,...(groupWatch?demoWatchDetails(payload):{})});
+        if(groupWatch)for(const person of payload.attendees||[])if(!data.progress.some(p=>p.item_id===payload.id&&p.film===payload.film&&p.name===person))data.progress.push({item_id:payload.id,film:payload.film,name:person});
+      }
+    }
     if(action==='details')Object.assign(data.items.find(i=>i.id===payload.id),payload.details);
     if(name&&!data.people.includes(name))data.people.push(name);
     persistDemo();render();
   }
+  function demoWatchDetails(payload){
+    const now=new Date();
+    return {watched_at:now.toISOString(),watched_on:[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-'),watched_attendees:payload.attendees,watched_by:payload.recorded_by};
+  }
+  function watchDay(value){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return '';
+    const [year,month,day]=value.split('-').map(Number);
+    return new Date(year,month-1,day).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+  }
+  function watchDetails(record){
+    const day=watchDay(record?.watched_on);
+    const attendees=Array.isArray(record?.watched_attendees)?record.watched_attendees:[];
+    return `<small class="watch-details">${day?'Watched '+escape(day):'Watch date not recorded'}<br>${attendees.length?'With '+attendees.map(escape).join(', '):'Attendees not recorded'}${record?.watched_by?'<br>Marked by '+escape(record.watched_by):''}</small>`;
+  }
+  function watchPreview(){return `<p class="hint watch-preview">Group watches save today’s date and ${tonight?.length?'mark it seen for the applied Tonight selection: '+tonight.map(escape).join(', ')+'.':'the attendees from Tonight. No attendees selected; attendance and personal seen status will be left unchanged.'}</p>`;}
+  function groupProgressDetails(item,key){const record=(data.progress||[]).find(p=>p.item_id===item.id&&p.film===key&&p.name==='Group');return record?watchDetails(record):'';}
   function join() {$('#name').value=name;$('#code').value=code;$('#code-label').hidden=!live;$('#join-error').textContent='';$('#join-dialog').showModal();}
   function requireName() {if(!name){$('#identity').focus();toast('Choose your name at the top first.');return false;}if(live&&!code){join();return false;}return true;}
-  function hasSeen(item){return !!name&&(data.seen||[]).some(s=>s.item_id===item.id&&s.name===name);}
+  function hasSeen(item){return item.members?item.members.some(hasSeen):!!name&&(data.seen||[]).some(s=>s.item_id===item.id&&s.name===name);}
+  function buildCollections(){
+    const normalize=title=>String(title||'').toLowerCase().replace(/(?:\s*\((?:\d{4}|rewatch)\))+\s*$/g,'').replace(/[^a-z0-9]/g,'');
+    return (window.WATCH_COLLECTIONS||[]).map(group=>{
+      const members=group.films.flatMap(([title,year])=>data.items.filter(item=>item.type==='movie'&&String(item.year)===String(year)&&[item.title,item.original_title].some(t=>normalize(t)===normalize(title))));
+      if(!members.length)return null;
+      return {id:'collection:'+group.id,title:group.title,type:'series',members,
+        watched:members.every(i=>i.watched),poster_path:members.find(i=>i.poster_path)?.poster_path,
+        created_at:members.map(i=>i.created_at).filter(Boolean).sort().at(-1),
+        overview:'Your Mary-Kate and Ashley movies, in release order. Open a film to see its details and responses.'};
+    }).filter(Boolean);
+  }
+  function findItem(id){return data.items.find(i=>i.id===id)||collections.find(i=>i.id===id);}
+  function posterUrl(item){return typeof item.poster_path==='string'&&/^\/[\w.-]+$/.test(item.poster_path)?'https://image.tmdb.org/t/p/w500'+item.poster_path:'';}
+  function collectionCard(item){
+    const poster=posterUrl(item);
+    return `<article class="card collection-card" data-id="${escape(item.id)}"><button type="button" class="poster ${poster?'':'fallback'}" data-open aria-label="Open ${escape(item.title)}" style="--poster-color:#ba02ee">${poster?`<img src="${poster}" alt="${escape(item.title)} collection" loading="lazy">`:'<span aria-hidden="true">M&amp;A</span>'}</button><div class="card-body"><h3><button class="title-link" data-open>${escape(item.title)}</button></h3><div class="meta"><span class="type-label">FILM SERIES</span><span>${item.members.length} films</span></div><button class="personal-seen" data-open>Choose a film</button><p class="description" title="${escape(item.overview)}">${escape(item.overview)}</p><div class="series-summary"><button class="series-progress-link" data-open>${completed(item,'Group')} of ${item.members.length} watched &middot; View films</button><p class="next-film">${escape(nextFilmLabel(item))}</p></div></div></article>`;
+  }
+  function eligibleTonight(item){return tonight===null||!data.votes.some(v=>v.item_id===item.id&&(tonight.includes(v.name)?v.interest==='pass':v.interest==='hold'));}
+  function matchesView(item){return view==='personal'?hasSeen(item):view==='watched'?item.watched||completed(item,'Group')>0:!item.watched;}
   function render() {
     $('#identity').value=name;
+    $('#filters-panel').className='filters-panel'+(filtersOpen?' is-open':'');
+    $('#filters-toggle').setAttribute('aria-expanded',String(filtersOpen));
+    $('#filters-toggle').textContent=type==='all'?'Filters':'Filters · '+({movie:'Films',series:'Film series',tv:'TV shows'})[type];
+    $('#grid').className='grid'+(layout==='grid'?' card-grid':'')+(showInitials?'':' hide-initials');
+    $('#layout-list').setAttribute('aria-pressed',String(layout==='list'));
+    $('#layout-grid').setAttribute('aria-pressed',String(layout==='grid'));
+    $('#show-initials').checked=showInitials;
+    $('#grid-hint').hidden=layout!=='grid';
+    collections=buildCollections();
     const search=$('#search').value.toLowerCase().trim();
     const filteringTonight=view==='browse'&&tonight!==null;
     const responsePeople=filteringTonight?names.filter(person=>tonight.includes(person)):names;
-    const visible=data.items.filter(item=>{
-      return (type==='all'||item.type===type)&&[item.title,item.original_title,...films(item).map(f=>f[0])].some(t=>t?.toLowerCase().includes(search))&&(view==='personal'?hasSeen(item):view==='watched'?item.watched||completed(item,'Group')>0:!item.watched)&&(!filteringTonight||!data.votes.some(v=>v.item_id===item.id&&(tonight.includes(v.name)?v.interest==='pass':v.interest==='hold')));
+    const grouped=type!=='movie'&&view!=='personal';
+    const memberIds=new Set(grouped?collections.flatMap(c=>c.members.map(i=>i.id)):[]);
+    const library=[...data.items.filter(i=>!memberIds.has(i.id)),...(grouped?collections:[])];
+    const visible=library.filter(item=>{
+      if(type!=='all'&&item.type!==type)return false;
+      if(item.members)return item.members.some(member=>matchesView(member)&&(!filteringTonight||eligibleTonight(member))&&[item.title,member.title,member.original_title].some(t=>t?.toLowerCase().includes(search)));
+      return [item.title,item.original_title,...films(item).map(f=>f[0])].some(t=>t?.toLowerCase().includes(search))&&matchesView(item)&&(!filteringTonight||eligibleTonight(item));
     });
     const assessment = item => {
-      const votes=data.votes.filter(v=>v.item_id===item.id);
-      const score=votes.filter(v=>['interested','hold'].includes(v.interest)&&(tonight===null||tonight.includes(v.name))).length;
+      const ids=new Set(item.members?item.members.filter(i=>matchesView(i)&&(!filteringTonight||eligibleTonight(i))).map(i=>i.id):[item.id]);
+      const votes=data.votes.filter(v=>ids.has(v.item_id));
+      const score=new Set(votes.filter(v=>['interested','hold'].includes(v.interest)&&(tonight===null||tonight.includes(v.name))).map(v=>v.name)).size;
       return {votes,score};
     };
     const sort=$('#sort').value;
     visible.sort((a,b)=>sort==='title'?a.title.localeCompare(b.title):['oldest','unanswered'].includes(sort)?addedOrder(a)-addedOrder(b):addedOrder(b)-addedOrder(a));
     if(sort==='unanswered'){
       const responded=new Set(data.votes.filter(v=>v.name===name).map(v=>v.item_id));
-      visible.sort((a,b)=>Number(responded.has(a.id))-Number(responded.has(b.id)));
+      const answered=item=>item.members?item.members.every(i=>responded.has(i.id)):responded.has(item.id);
+      visible.sort((a,b)=>Number(answered(a))-Number(answered(b)));
     }
     if(sort==='interest')visible.sort((a,b)=>assessment(b).score-assessment(a).score);
     $('#sample-notice').hidden=live||!data.votes.some(v=>v.sample);
@@ -142,13 +219,14 @@
 
     $('#count').textContent=visible.length;$('#count').hidden=view!=='browse';$('#empty').hidden=!!visible.length;
     $('#grid').innerHTML=visible.map((item,index)=>{
+      if(item.members)return collectionCard(item);
       const {votes}=assessment(item), mine=votes.find(v=>v.name===name)?.interest;
       const seen=hasSeen(item);
       const holds=votes.filter(v=>v.interest==='hold').map(v=>v.name), interested=votes.filter(v=>v.interest==='interested').map(v=>v.name), passes=votes.filter(v=>v.interest==='pass').map(v=>v.name);
       const poster=typeof item.poster_path==='string'&&/^\/[\w.-]+$/.test(item.poster_path)?`https://image.tmdb.org/t/p/w500${item.poster_path}`:'';
       const imdb=/^tt\d+$/.test(item.imdb_id||'')?`<a href="https://www.imdb.com/title/${item.imdb_id}/" target="_blank" rel="noopener">IMDb ↗</a>`:'';
       const tmdb=Number.isInteger(Number(item.tmdb_id))&&Number(item.tmdb_id)>0?`<a href="https://www.themoviedb.org/${item.type==='series'?'collection':item.type==='tv'?'tv':'movie'}/${Number(item.tmdb_id)}" target="_blank" rel="noopener">TMDB ↗</a>`:'';
-      return `<article class="card" data-id="${escape(item.id)}"><div class="poster ${poster?'':'fallback'}" style="--poster-color:${['#ba02ee','#4502ee','#ee02ab','#ba02ee','#4502ee'][index%5]}">${poster?`<img src="${poster}" alt="${escape(item.title)} poster" loading="lazy">`:`<span aria-hidden="true">${escape(item.title.slice(0,1).toUpperCase())}</span>`}</div><div class="card-body"><h3><button class="title-link" data-open>${escape(displayTitle(item))}</button></h3><div class="meta"><span class="type-label">${types[item.type]||'FILM'}</span>${item.year?`<span>${escape(item.year)}</span>`:''}${item.watched?'<span>Watched ✓</span>':''}<span class="added-date">${dateLabel(item)}</span></div><button class="personal-seen" data-seen aria-pressed="${seen}" aria-label="${escape((seen?'Mark as not seen: ':'Mark as seen: ')+displayTitle(item)+(name?' for '+name:''))}" title="${escape(seen?'Seen by '+name+' — click to undo':name?'Mark as seen by '+name:'Choose your name first')}">${seen?'✓ Seen':'Mark as seen'}</button>${item.overview?`<p class="description">${escape(item.overview)}</p>`:''}<div class="vote-controls response-panel" role="group" aria-label="Responses to ${escape(item.title)}"><div class="people-responses">${responsePeople.map(person=>votes.find(v=>v.name===person)||{name:person,interest:'unanswered'}).map(v=>`<span class="person-response response-${v.interest}" tabindex="0" role="img" aria-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}" data-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}">${escape(initials(v.name))}</span>`).join('')||'<span class="no-response">No responses yet</span>'}</div>${mine&&editingVote!==item.id?`<div class="saved-response response-${mine}"><button class="edit-response" aria-label="Edit your response" title="Edit your response" data-edit-vote ${item.watched?'disabled':''}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 15 16 3a2 2 0 0 1 5 5L9 20l-6 1z"/></svg></button></div>`:`<div class="response-buttons">${Object.entries(voteLabels).map(([value,label])=>`<button data-vote="${value}" aria-pressed="${mine===value}" ${item.watched?'disabled':''}>${label}</button>`).join('')}</div>`}</div><div class="series-summary">${films(item).length?`<button class="series-progress-link" data-open>${films(item).length} films &middot; ${completed(item,'Group')} watched &middot; View films</button><p class="next-film">${escape(nextFilmLabel(item))}</p>`: ''}</div></div></article>`;
+      return `<article class="card" data-id="${escape(item.id)}"><button type="button" data-open aria-label="Open ${escape(item.title)}" class="poster ${poster?'':'fallback'}" style="--poster-color:${['#ba02ee','#4502ee','#ee02ab','#ba02ee','#4502ee'][index%5]}">${poster?`<img src="${poster}" alt="${escape(item.title)} poster" loading="lazy">`:`<span aria-hidden="true">${escape(item.title.slice(0,1).toUpperCase())}</span>`}</button><div class="card-body"><h3><button class="title-link" data-open>${escape(displayTitle(item))}</button></h3><div class="meta"><span class="type-label">${types[item.type]||'FILM'}</span>${item.year?`<span>${escape(item.year)}</span>`:''}${item.watched&&watchDay(item.watched_on)?'<span>Watched '+escape(watchDay(item.watched_on))+'</span>':''}${item.watched?'<span>Watched ✓</span>':''}<span class="added-date">${dateLabel(item)}</span></div><button class="personal-seen" data-seen aria-pressed="${seen}" aria-label="${escape((seen?'Mark as not seen: ':'Mark as seen: ')+displayTitle(item)+(name?' for '+name:''))}" title="${escape(seen?'Seen by '+name+' — click to undo':name?'Mark as seen by '+name:'Choose your name first')}">${seen?'✓ Seen':'Mark as seen'}</button>${item.overview?`<p class="description">${escape(item.overview)}</p>`:''}<div class="vote-controls response-panel" role="group" aria-label="Responses to ${escape(item.title)}"><div class="people-responses">${responsePeople.map(person=>votes.find(v=>v.name===person)||{name:person,interest:'unanswered'}).map(v=>`<span class="person-response response-${v.interest}" tabindex="0" role="img" aria-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}" data-label="${escape(v.name)}: ${voteLabels[v.interest]||'Not answered'}${v.sample?' (sample)':''}">${escape(initials(v.name))}</span>`).join('')||'<span class="no-response">No responses yet</span>'}</div>${mine&&editingVote!==item.id?`<div class="saved-response response-${mine}"><span>Your pick: ${escape(voteLabels[mine])}</span><span aria-hidden="true">&middot;</span><button class="edit-response" aria-label="Edit your response" title="Edit your response" data-edit-vote ${item.watched?'disabled':''}>Edit</button><small class="vote-consequence">${escape(voteHints[mine])}</small></div>`:`<div class="response-buttons">${Object.entries(voteLabels).map(([value,label])=>`<button data-vote="${value}" title="${escape(voteHints[value])}" aria-pressed="${mine===value}" ${item.watched?'disabled':''}>${label}</button>`).join('')}</div>`}</div><div class="series-summary">${films(item).length?`<button class="series-progress-link" data-open>${films(item).length} films &middot; ${completed(item,'Group')} watched &middot; View films</button><p class="next-film">${escape(nextFilmLabel(item))}</p>`: ''}</div></div></article>`;
     }).join('');
     $('#attendees').innerHTML=names.length?names.map(n=>`<label class="check-label"><input type="checkbox" value="${escape(n)}" ${draftTonight.includes(n)?'checked':''}>${escape(n)}</label>`).join(''):'<p>Your friends appear here once they join and vote.</p>';
     $('#tonight-button').textContent=tonight===null?'Who’s here tonight?':`Tonight: ${tonight.length} joining`;
@@ -195,6 +273,11 @@
   });
   document.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>{type=b.dataset.type;document.querySelectorAll('[data-type]').forEach(x=>x.setAttribute('aria-pressed',x===b));render();});
   $('#search').addEventListener('input',render);
+  $('#filters-toggle').onclick=()=>{filtersOpen=!filtersOpen;render();};
+  function setLayout(value){layout=value;try{localStorage.setItem('friday-layout',JSON.stringify(value));}catch{}render();}
+  $('#layout-list').onclick=()=>setLayout('list');
+  $('#layout-grid').onclick=()=>setLayout('grid');
+  $('#show-initials').addEventListener('change',()=>{showInitials=$('#show-initials').checked;try{localStorage.setItem('friday-show-initials',JSON.stringify(showInitials));}catch{}render();});
   $('#sort').addEventListener('change',()=>{
     try{localStorage.setItem('friday-sort',JSON.stringify($('#sort').value));}catch{}
     render();
@@ -208,11 +291,15 @@
   $('#attendees-main').onclick=()=>{draftTonight=names.filter(person=>['Alex','Lyss','Julie','Blue','Ashe','Amanda','Emi'].includes(person));render();};
   $('#attendees-none').onclick=()=>{draftTonight=[];tonight=null;persistTonight();render();};
   document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{view=b.dataset.view;document.querySelectorAll('[data-view]').forEach(x=>x.setAttribute('aria-pressed',x===b));$('#tonight-panel').hidden=true;$('#tonight-button').setAttribute('aria-expanded','false');render();});
-  $('#tonight-apply').onclick=()=>{tonight=draftTonight.length?[...draftTonight]:null;persistTonight();$('#tonight-panel').hidden=true;$('#tonight-button').setAttribute('aria-expanded','false');render();$('#tonight-button').focus();};
+  $('#tonight-apply').onclick=()=>{
+    tonight=draftTonight.length?[...draftTonight]:null;persistTonight();
+    if(tonight){$('#sort').value='interest';try{localStorage.setItem('friday-sort',JSON.stringify('interest'));}catch{}}
+    $('#tonight-panel').hidden=true;$('#tonight-button').setAttribute('aria-expanded','false');render();$('#tonight-button').focus();
+  };
   $('#refresh').onclick=async()=>{try{if(live&&!code){join();return;}await load();toast('List refreshed.');}catch(e){toast(e.message);}};
   $('#grid').onclick=async event=>{
     const button=event.target.closest('button');if(!button)return;
-    const item=data.items.find(i=>i.id===button.closest('[data-id]').dataset.id);
+    const item=findItem(button.closest('[data-id]').dataset.id);if(!item)return;
     if(button.hasAttribute('data-open')){openDetail(item);return;}
     if(!requireName())return;
     if(button.hasAttribute('data-edit-vote')){editingVote=item.id;render();document.querySelector(`[data-id="${item.id}"] [data-vote]`)?.focus();return;}
@@ -281,12 +368,22 @@
   function addedOrder(item){return Date.parse(item.created_at)||window.WATCH_SEED.findIndex(i=>i.id===item.id)+1;}
   function dateLabel(item){return item.created_at?'Added '+new Date(item.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}):(window.WATCH_SEED.some(i=>i.id===item.id)?'Original list · #'+(window.WATCH_SEED.findIndex(i=>i.id===item.id)+1):'Added before date tracking');}
   function displayTitle(item){return item.title==='The Princess Diaries 2: Royal Engagement'?'The Princess Diaries':item.title==='Glass Onion: A Knives Out Mystery'?'Knives Out':item.title;}
-  function films(item){return item.type==='series'?(window.WATCH_SERIES[item.title]||item.films||[]):[];}
-  function nextFilmLabel(item){const next=films(item).find(f=>!done(item,f,'Group'));return next?'Next: '+filmKey(next):'All films watched by the group';}
+  function films(item){return item.members?item.members.map(i=>[i.title,Number(i.year)]):item.type==='series'?(window.WATCH_SERIES[item.title]||item.films||[]):[];}
+  function nextFilmLabel(item){
+    if(item.members){
+      const next=item.members.find(member=>!member.watched&&(view!=='browse'||eligibleTonight(member)));
+      return next?'Next: '+filmKey([next.title,next.year]):item.watched?'All films watched by the group':'No remaining films eligible tonight';
+    }
+    const next=films(item).find(f=>!done(item,f,'Group'));
+    return next?'Next: '+filmKey(next):'All films watched by the group';
+  }
   function filmKey(f){return f[0]+' ('+f[1]+')';}
-  function done(item,f,person){return (data.progress||[]).some(p=>p.item_id===item.id&&p.film===filmKey(f)&&p.name===person);}
+  function done(item,f,person){
+    if(item.members){const member=item.members.find(i=>filmKey([i.title,Number(i.year)])===filmKey(f));return person==='Group'?!!member?.watched:!!member&&(data.seen||[]).some(s=>s.item_id===member.id&&s.name===person);}
+    return (data.progress||[]).some(p=>p.item_id===item.id&&p.film===filmKey(f)&&p.name===person);
+  }
   function completed(item,person){return films(item).filter(f=>done(item,f,person)).length;}
-  function openDetail(item){filmFilter='all';detailId=item.id;renderDetail();if(!$('#detail-dialog').open)$('#detail-dialog').showModal();if(item.type==='tv'&&item.tmdb_id&&live)void loadTv(item);}
+  function openDetail(item){filmFilter=item.members&&view==='watched'?'watched':'all';detailId=item.id;renderDetail();if(!$('#detail-dialog').open)$('#detail-dialog').showModal();if(item.type==='tv'&&item.tmdb_id&&live)void loadTv(item);}
   function episodeKey(item,season,episode){return `tv:${item.tmdb_id}:${season}:${episode}`;}
   function episodeDone(item,season,episode,person){return (data.progress||[]).some(p=>p.item_id===item.id&&p.name===person&&p.film===episodeKey(item,season,episode));}
   function seasonCount(item,season,person){return (data.progress||[]).filter(p=>p.item_id===item.id&&p.name===person&&p.film.startsWith(`tv:${item.tmdb_id}:${season}:`)).length;}
@@ -324,20 +421,43 @@
     const count=person=>episodes.filter(e=>episodeDone(item,state.selected,e.number,person)).length;
     const next=episodes.find(e=>!episodeDone(item,state.selected,e.number,'Group'));
     const summary=`<div class="episode-counts"><span>Group <b>${count('Group')}/${episodes.length}</b></span>${name?`<span>${escape(name)} <b>${count(name)}/${episodes.length}</b></span>`:''}</div><p class="hint">${next?`Next for the group: episode ${next.number} · ${escape(next.name)}`:'Season complete for the group ✓'}</p>`;
-    return heading+picker+summary+'<div class="progress-heading"><span>Episode</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+episodes.map(e=>`<div class="film-row episode-row"><span><b><span class="episode-number">${e.number}.</span> ${escape(e.name)}</b>${e.air_date&&e.air_date>new Date().toISOString().slice(0,10)?`<small>Upcoming · ${escape(e.air_date)}</small>`:''}</span>`+['Group',name].map(person=>`<label><span class="sr-only">Season ${state.selected}, episode ${e.number} watched by ${escape(person||'you')}</span><input type="checkbox" data-episode="${e.number}" data-season-number="${state.selected}" data-person="${escape(person)}" ${episodeDone(item,state.selected,e.number,person)?'checked':''} ${!name||state.saving?'disabled':''}></label>`).join('')+'</div>').join('')+'</section>';
+    return heading+picker+summary+watchPreview()+'<div class="progress-heading"><span>Episode</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+episodes.map(e=>`<div class="film-row episode-row"><span><b><span class="episode-number">${e.number}.</span> ${escape(e.name)}</b>${groupProgressDetails(item,episodeKey(item,state.selected,e.number))}${e.air_date&&e.air_date>new Date().toISOString().slice(0,10)?`<small>Upcoming · ${escape(e.air_date)}</small>`:''}</span>`+['Group',name].map(person=>`<label><span class="sr-only">Season ${state.selected}, episode ${e.number} watched by ${escape(person||'you')}</span><input type="checkbox" data-episode="${e.number}" data-season-number="${state.selected}" data-person="${escape(person)}" ${episodeDone(item,state.selected,e.number,person)?'checked':''} ${!name||state.saving?'disabled':''}></label>`).join('')+'</div>').join('')+'</section>';
+  }
+  function filmFilterControls(){return '<div class="film-filters" role="group" aria-label="Film progress filter">'+['all','remaining','watched'].map(value=>`<button class="secondary" data-film-filter="${value}" aria-pressed="${filmFilter===value}">${{all:'All films',remaining:'Remaining',watched:'Watched'}[value]}</button>`).join('')+'</div>';}
+  function renderCollectionDetail(item){
+    const members=item.members.filter(member=>filmFilter==='all'||(filmFilter==='watched')===!!member.watched);
+    $('#detail-content').innerHTML=`<p class="eyebrow">FILM SERIES</p><h2>${escape(item.title)}</h2><p>${escape(item.overview)}</p><p class="hint">${completed(item,'Group')} of ${item.members.length} watched by the group. ${escape(nextFilmLabel(item))}</p>${filmFilterControls()}${watchPreview()}<p class="hint">Check Group to mark a film group watched, or your name to mark it personally seen. Each film keeps its own responses.</p><div class="progress-heading"><span>Film</span><span>Group</span><span>${escape(name||'You')}</span></div>`+
+      members.map(member=>`<div class="film-row collection-film"><span><button class="title-link" data-member-open="${escape(member.id)}">${escape(member.title)}</button><small>${escape(member.year)}</small>${member.watched?watchDetails(member):''}${view==='browse'&&tonight!==null&&!eligibleTonight(member)?'<small class="warning">Not eligible tonight</small>':''}</span>`+['Group',name].map(person=>`<label><span class="sr-only">${escape(member.title)} watched by ${escape(person||'you')}</span><input type="checkbox" data-member-id="${escape(member.id)}" data-person="${escape(person)}" ${person==='Group'?member.watched?'checked':'':(data.seen||[]).some(s=>s.item_id===member.id&&s.name===person)?'checked':''} ${!name?'disabled':''}></label>`).join('')+'</div>').join('')+
+      (!members.length?'<p class="hint">No films in this filter yet.</p>':'');
+  }
+  function detailResponses(item){
+    const mine=data.votes.find(v=>v.item_id===item.id&&v.name===name)?.interest;
+    return `<section class="detail-responses"><h3>Your response${name?' · '+escape(name):''}</h3><div class="response-panel"><div class="response-buttons">${Object.entries(voteLabels).map(([value,label])=>`<button type="button" data-detail-vote="${value}" data-vote="${value}" title="${escape(voteHints[value])}" aria-pressed="${mine===value}" ${item.watched?'disabled':''}>${label}</button>`).join('')}</div></div><button type="button" class="personal-seen" data-detail-seen aria-pressed="${hasSeen(item)}">${hasSeen(item)?'Seen — click to undo':'Mark as seen'}</button></section>`;
   }
   function renderDetail(){
-    const item=data.items.find(i=>i.id===detailId);if(!item)return;
+    const item=findItem(detailId);if(!item)return;
+    if(item.members){renderCollectionDetail(item);return;}
+    const parent=collections.find(c=>c.members.some(i=>i.id===item.id));
     const list=films(item);
     const shown=list.map((film,index)=>({film,index})).filter(({film})=>filmFilter==='all'||(filmFilter==='watched')===done(item,film,'Group'));
-    $('#detail-content').innerHTML='<p class="eyebrow">'+types[item.type]+'</p><h2>'+escape(displayTitle(item))+'</h2><p class="detail-meta">'+dateLabel(item)+'</p>'+
+    $('#detail-content').innerHTML=(parent?`<p><button class="secondary" data-collection-back="${escape(parent.id)}">Back to ${escape(parent.title)}</button></p>`:'')+'<p class="eyebrow">'+types[item.type]+'</p><h2>'+escape(displayTitle(item))+'</h2><p class="detail-meta">'+dateLabel(item)+'</p>'+
       (item.overview?'<p>'+escape(item.overview)+'</p>':'')+
       (live&&!item.tmdb_id?'<p><button class="secondary" data-match>Find a match</button></p>':'')+
       (item.imdb_id?'<a href="https://www.imdb.com/title/'+escape(item.imdb_id)+'/" target="_blank" rel="noopener">View on IMDb ↗</a>':'')+tvTracker(item)+
-      (list.length?'<h3>Series progress</h3><p class="hint">'+escape(nextFilmLabel(item))+'</p><div class="film-filters" role="group" aria-label="Film progress filter">'+['all','remaining','watched'].map(value=>'<button class="secondary" data-film-filter="'+value+'" aria-pressed="'+(filmFilter===value)+'">'+({all:'All films',remaining:'Remaining',watched:'Watched'})[value]+'</button>').join('')+'</div><p class="hint">Release order'+(item.title==='The Muppets'?' · Theatrical films':'')+'. Group and personal progress are tracked separately.</p><div class="progress-heading"><span>Film</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+shown.map(({film:f,index})=>'<div class="film-row"><span><b>'+escape(f[0])+'</b><small>'+f[1]+'</small><a class="film-info" href="https://www.themoviedb.org/search/movie?query='+encodeURIComponent(filmKey(f))+'" target="_blank" rel="noopener">Film details</a></span>'+['Group',name].map(person=>'<label><span class="sr-only">'+escape(f[0])+' watched by '+escape(person||'you')+'</span><input type="checkbox" data-film="'+index+'" data-person="'+escape(person)+'" '+(done(item,f,person)?'checked':'')+' '+(!name?'disabled':'')+'></label>').join('')+'</div>').join(''):'')+
-      '<div class="history-actions"><h3>Group watch history</h3><p class="hint">Move this '+(list.length?'series':'title')+' between the watch list and Watched.</p><button class="secondary" data-archive>'+ (item.watched?'Move back to watch list':'Mark group watched')+'</button></div>';
+      (list.length?'<h3>Series progress</h3><p class="hint">'+escape(nextFilmLabel(item))+'</p><div class="film-filters" role="group" aria-label="Film progress filter">'+['all','remaining','watched'].map(value=>'<button class="secondary" data-film-filter="'+value+'" aria-pressed="'+(filmFilter===value)+'">'+({all:'All films',remaining:'Remaining',watched:'Watched'})[value]+'</button>').join('')+'</div><p class="hint">Release order'+(item.title==='The Muppets'?' · Theatrical films':'')+'. Group and personal progress are tracked separately.</p>'+watchPreview()+'<div class="progress-heading"><span>Film</span><span>Group</span><span>'+escape(name||'You')+'</span></div>'+shown.map(({film:f,index})=>'<div class="film-row"><span><b>'+escape(f[0])+'</b><small>'+f[1]+'</small>'+groupProgressDetails(item,filmKey(f))+'<a class="film-info" href="https://www.themoviedb.org/search/movie?query='+encodeURIComponent(filmKey(f))+'" target="_blank" rel="noopener">Film details</a></span>'+['Group',name].map(person=>'<label><span class="sr-only">'+escape(f[0])+' watched by '+escape(person||'you')+'</span><input type="checkbox" data-film="'+index+'" data-person="'+escape(person)+'" '+(done(item,f,person)?'checked':'')+' '+(!name?'disabled':'')+'></label>').join('')+'</div>').join(''):'')+
+      detailResponses(item)+'<div class="history-actions"><h3>Group watch history</h3><p class="hint">Move this '+(list.length?'series':'title')+' between the watch list and Watched.</p>'+(item.watched?watchDetails(item):watchPreview())+'<button class="secondary" data-archive>'+ (item.watched?'Move back to watch list':'Mark group watched')+'</button></div>';
   }
   $('#detail-content').onchange=async event=>{
+    const memberInput=event.target.closest('[data-member-id]');
+    if(memberInput){
+      if(!requireName()){memberInput.checked=!memberInput.checked;return;}
+      const member=data.items.find(i=>i.id===memberInput.dataset.memberId);if(!member)return;
+      const person=memberInput.dataset.person,watched=memberInput.checked;
+      $('#detail-content').querySelectorAll('[data-member-id]').forEach(input=>input.disabled=true);
+      try{await mutate(person==='Group'?'watched':'seen',person==='Group'?{id:member.id,watched}:{id:member.id,name:person,seen:watched});}
+      catch(e){toast(e.message);}finally{renderDetail();}
+      return;
+    }
     const tvItem=data.items.find(i=>i.id===detailId);
     if(event.target.matches('[data-season]')){void loadTv(tvItem,Number(event.target.value));return;}
     const episode=event.target.closest('[data-episode]');
@@ -355,6 +475,19 @@
     try{await mutate('progress',{id:item.id,film:filmKey(films(item)[Number(input.dataset.film)]),name:input.dataset.person,watched:input.checked});renderDetail();}catch(e){input.checked=!input.checked;toast(e.message);}finally{input.disabled=false;}
   };
   $('#detail-content').onclick=async event=>{
+    const member=event.target.closest('[data-member-open]');if(member){openDetail(findItem(member.dataset.memberOpen));return;}
+    const back=event.target.closest('[data-collection-back]');if(back){openDetail(findItem(back.dataset.collectionBack));return;}
+    const response=event.target.closest('[data-detail-vote], [data-detail-seen]');
+    if(response){
+      if(response.disabled||!requireName())return;
+      const item=data.items.find(i=>i.id===detailId);if(!item)return;
+      $('#detail-content').querySelectorAll('[data-detail-vote], [data-detail-seen]').forEach(button=>button.disabled=true);
+      try{
+        if(response.hasAttribute('data-detail-seen'))await mutate('seen',{id:item.id,name,seen:!hasSeen(item)});
+        else{const current=data.votes.find(v=>v.item_id===item.id&&v.name===name)?.interest;await mutate('vote',{id:item.id,name,interest:current===response.dataset.detailVote?null:response.dataset.detailVote});}
+      }catch(e){toast(e.message);}finally{renderDetail();}
+      return;
+    }
     const filter=event.target.closest('[data-film-filter]');if(filter){filmFilter=filter.dataset.filmFilter;renderDetail();return;}
     if(event.target.closest('[data-tv-retry]')){void loadTv(data.items.find(i=>i.id===detailId));return;}
     if(event.target.closest('[data-match]')){if(!requireName())return;const item=data.items.find(i=>i.id===detailId);$('#detail-dialog').close();openAdd(item);return;}
